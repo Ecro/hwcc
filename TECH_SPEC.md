@@ -129,6 +129,88 @@ Hardware MCP servers are emerging but serve **different use cases** — interact
 └─────────────────────────────────────────────────────────────┘
 ```
 
+### 3.1 Internal Architecture — ABC Contracts & Pipeline Composition
+
+The pipeline is built on **Ports & Adapters** (hexagonal architecture) with ABC contracts at every stage boundary. This ensures every provider is swappable, testable with mocks, and discoverable via config.
+
+#### Pipeline Data Flow (frozen dataclasses)
+
+```
+Path ──▶ BaseParser.parse() ──▶ ParseResult
+             ──▶ BaseChunker.chunk() ──▶ list[Chunk]
+             ──▶ BaseEmbedder.embed_chunks() ──▶ list[EmbeddedChunk]
+             ──▶ BaseStore.add() ──▶ persisted
+             ──▶ BaseCompiler.compile() ──▶ output files
+```
+
+Data contracts are **immutable** (`@dataclass(frozen=True)`) to prevent accidental mutation between stages:
+
+| Type | Module | Fields |
+|------|--------|--------|
+| `ParseResult` | `hwcc.types` | doc_id, content (markdown), doc_type, title, chip, metadata |
+| `Chunk` | `hwcc.types` | chunk_id, content, token_count, metadata (ChunkMetadata) |
+| `ChunkMetadata` | `hwcc.types` | doc_id, doc_type, chip, section_path, page, peripheral, content_type |
+| `EmbeddedChunk` | `hwcc.types` | chunk (Chunk), embedding (tuple of floats) |
+| `SearchResult` | `hwcc.types` | chunk (Chunk), score, distance |
+
+#### ABC Interfaces
+
+Each pipeline stage has an abstract base class in `<package>/base.py`:
+
+| ABC | Module | Key Methods |
+|-----|--------|-------------|
+| `BaseParser` | `hwcc.ingest.base` | `parse(path, config) → ParseResult`, `supported_extensions() → frozenset[str]`, `can_parse(path) → bool` |
+| `BaseChunker` | `hwcc.chunk.base` | `chunk(result, config) → list[Chunk]` |
+| `BaseEmbedder` | `hwcc.embed.base` | `embed_chunks(chunks) → list[EmbeddedChunk]`, `embed_query(text) → list[float]`, `dimension → int` |
+| `BaseStore` | `hwcc.store.base` | `add(chunks, doc_id) → int`, `search(query_embedding, k, where) → list[SearchResult]`, `delete(doc_id) → int`, `count() → int` |
+| `BaseCompiler` | `hwcc.compile.base` | `compile(store, config) → list[Path]` |
+
+#### Provider Registry
+
+Config-driven factory: `[embedding] provider = "ollama"` → `ProviderRegistry.create("embedding", "ollama", config)` → `OllamaEmbedder` instance.
+
+```python
+from hwcc.registry import ProviderRegistry
+
+registry = ProviderRegistry()
+registry.register("embedding", "ollama", lambda cfg: OllamaEmbedder(cfg))
+registry.register("embedding", "openai", lambda cfg: OpenAIEmbedder(cfg))
+embedder = registry.create("embedding", config.embedding.provider, config)
+```
+
+#### Pipeline Composition
+
+All dependencies injected via constructor — fully testable with mocks:
+
+```python
+from hwcc.pipeline import Pipeline
+
+pipeline = Pipeline(
+    parser=svd_parser,
+    chunker=recursive_chunker,
+    embedder=ollama_embedder,
+    store=chroma_store,
+    config=config,
+)
+chunk_count = pipeline.process(Path("board.svd"), doc_id="board_svd")
+```
+
+#### Exception Hierarchy
+
+```
+HwccError (base)
+├── ConfigError      — config.toml loading/validation
+├── ManifestError    — manifest.json operations
+├── ProjectError     — project init/discovery
+├── ParseError       — document parsing failures
+├── ChunkError       — chunking failures
+├── EmbeddingError   — embedding generation failures
+├── StoreError       — vector store operations
+├── CompileError     — context compilation failures
+├── PipelineError    — pipeline orchestration failures
+└── PluginError      — plugin loading/registration
+```
+
 ---
 
 ## 4. Data Store Structure
