@@ -226,7 +226,7 @@ Files analyzed: {list or count}
 For fast feedback on specific code:
 
 ```
-/review --quick src/embedded_rag/ingest/pdf.py
+/review --quick src/hwcc/ingest/pdf.py
 ```
 
 This performs focused analysis on just that file without full agent review.

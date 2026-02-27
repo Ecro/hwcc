@@ -1,5 +1,5 @@
 #!/bin/bash
-# Session stop hook for embedded-rag
+# Session stop hook for hwcc
 # Shows pending work when Claude Code session ends (JSON protocol)
 
 # Read stdin JSON (required even if not used)

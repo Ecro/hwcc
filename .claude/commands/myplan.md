@@ -253,7 +253,7 @@ Output a structured, actionable plan:
 ## Verification Strategy
 - [ ] Tests pass: `pytest tests/`
 - [ ] Lint passes: `ruff check src/ tests/`
-- [ ] Types correct: `mypy src/embedded_rag/`
+- [ ] Types correct: `mypy src/hwcc/`
 - [ ] Manual test: {steps}
 - [ ] No unintended side effects in: {NON-GOAL areas}
 

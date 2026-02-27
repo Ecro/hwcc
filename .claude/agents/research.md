@@ -45,7 +45,7 @@ You are a research specialist focused on gathering information, exploring best p
 
 ## Project Context
 
-This is embedded-rag — a Context Compiler that transforms hardware documentation into AI-optimized context:
+This is hwcc — a Context Compiler that transforms hardware documentation into AI-optimized context:
 
 | Area | Key Technologies |
 |------|------------------|

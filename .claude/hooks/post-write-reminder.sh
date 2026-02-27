@@ -1,5 +1,5 @@
 #!/bin/bash
-# Post-write verification reminder hook for embedded-rag
+# Post-write verification reminder hook for hwcc
 # Only reminds for Python file changes
 
 # Read stdin JSON (required by hook protocol)

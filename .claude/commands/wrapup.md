@@ -56,7 +56,7 @@ thinking: ultrathink
 ruff check src/ tests/
 
 # Type check
-mypy src/embedded_rag/
+mypy src/hwcc/
 
 # Tests
 pytest tests/ --tb=short
@@ -69,7 +69,7 @@ pytest tests/ --tb=short
 **Check for debug/test code that should be removed:**
 
 ```
-Grep "print(" in src/embedded_rag/
+Grep "print(" in src/hwcc/
 Grep "breakpoint()" in src/
 Grep "import pdb|import ipdb" in src/
 Grep "TODO|FIXME|XXX|HACK" in src/
@@ -154,7 +154,7 @@ git status
 git add {specific-files-you-changed}
 
 # Example:
-git add src/embedded_rag/ingest/pdf.py
+git add src/hwcc/ingest/pdf.py
 git add tests/test_ingest_pdf.py
 git add docs/plans/PLAN_PDF_PARSER.md  # Include the plan file!
 git add TECH_SPEC.md  # If you updated it
@@ -271,7 +271,7 @@ git push -u origin {branch-name}
 **Do NOT commit if:**
 - `pytest tests/` fails
 - `ruff check src/ tests/` fails
-- `mypy src/embedded_rag/` fails
+- `mypy src/hwcc/` fails
 - Debug code present (print, breakpoint, pdb)
 - Changes don't match planned scope
 - Staging files you didn't modify in this session
@@ -288,7 +288,7 @@ git push -u origin {branch-name}
 
 ```
 Edit ~/.claude/CLAUDE.md  # Append to "Learned Corrections" section
-# Format: YYYY-MM-DD: [embedded-rag] Description of mistake and correct approach
+# Format: YYYY-MM-DD: [hwcc] Description of mistake and correct approach
 ```
 
 ## Rollback Procedure

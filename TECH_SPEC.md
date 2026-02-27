@@ -1,4 +1,4 @@
-# Embedded RAG — Technical Specification
+# hwcc — Technical Specification
 
 > **Version**: 0.1.0-draft
 > **Date**: 2026-02-27
@@ -8,7 +8,7 @@
 
 ## 1. What This Is
 
-**Embedded RAG** is a **Context Compiler** for embedded engineering projects.
+**hwcc** (Hardware Context Compiler) is a **Context Compiler** for embedded engineering projects.
 
 It transforms raw hardware documentation (datasheets, reference manuals, SVD files, schematics, errata, device trees) into AI-optimized context that any coding tool can consume — Claude Code, Codex, Cursor, Gemini CLI, Ollama, or plain clipboard paste.
 
@@ -22,10 +22,10 @@ It transforms raw hardware documentation (datasheets, reference manuals, SVD fil
 ### Core Value Proposition
 
 ```
-WITHOUT embedded-rag:
+WITHOUT hwcc:
   Engineer pastes 127-page PDF into Claude → AI hallucinates register addresses
 
-WITH embedded-rag:
+WITH hwcc:
   Engineer runs `rag add datasheet.pdf` → AI gets clean register maps,
   timing specs, errata workarounds → writes correct driver code
 ```
@@ -52,7 +52,7 @@ Even as context windows grow to 1M+ tokens (Claude Opus 4.6, Gemini 2M planned),
   Full IDE/Platform  ── │  Cursor / Codex         │  Embedder (YC S25)
                         │  (generic AI IDEs)      │  (closed, enterprise $$$)
                         │                         │
-  Preprocessing /    ── │  Skill Seekers          │  ★ EMBEDDED RAG ★
+  Preprocessing /    ── │  Skill Seekers          │  ★ HWCC ★
   Context Compiler      │  CTX, RAG-CLI           │  (open source, tool-agnostic)
                         │  (no HW knowledge)      │
   Validation /       ── │                         │  RespCode
@@ -111,7 +111,7 @@ Hardware MCP servers are emerging but serve **different use cases** — interact
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     EMBEDDED RAG                             │
+│                     HWCC                             │
 │                                                              │
 │  ┌──────────┐     ┌──────────────┐     ┌──────────────────┐ │
 │  │          │     │              │     │                  │ │
@@ -340,7 +340,7 @@ Raw Document
 
 ### 6.1 Static Context Files
 
-Auto-generated after every `rag add` or `rag compile`:
+Auto-generated after every `hwcc add` or `hwcc compile`:
 
 | Output File | Target Tool | Max Size | Content |
 |------------|-------------|----------|---------|
@@ -355,11 +355,11 @@ Auto-generated after every `rag add` or `rag compile`:
 **Non-destructive**: The tool appends/updates a marked section in existing files. It never overwrites user content.
 
 ```markdown
-<!-- BEGIN EMBEDDED-RAG CONTEXT (auto-generated, do not edit) -->
+<!-- BEGIN HWCC CONTEXT (auto-generated, do not edit) -->
 # Hardware Context
 - MCU: STM32F407VGT6 (Cortex-M4, 168MHz, 1MB Flash)
 ...
-<!-- END EMBEDDED-RAG CONTEXT -->
+<!-- END HWCC CONTEXT -->
 ```
 
 ### 6.2 MCP Server
@@ -395,17 +395,17 @@ For Codex: installed to `.agents/skills/hw-lookup/SKILL.md`.
 ### 6.4 Clipboard Mode
 
 ```bash
-rag context SPI --copy              # Copy SPI context to clipboard
-rag context --query "DMA" --copy    # Search and copy results
-rag context --all --copy            # Copy full hot context
+hwcc context SPI --copy              # Copy SPI context to clipboard
+hwcc context --query "DMA" --copy    # Search and copy results
+hwcc context --all --copy            # Copy full hot context
 ```
 
 ### 6.5 Pipe Mode
 
 ```bash
-rag context SPI | some-llm-cli     # Pipe to any CLI tool
-cat prompt.txt | rag augment        # Augment stdin with relevant context
-rag context --format json           # Machine-readable output
+hwcc context SPI | some-llm-cli     # Pipe to any CLI tool
+cat prompt.txt | hwcc augment        # Augment stdin with relevant context
+hwcc context --format json           # Machine-readable output
 ```
 
 ### 6.6 Agent Skill (Auto-trigger)
@@ -437,44 +437,44 @@ Never guess register addresses. Always verify against indexed documentation.
 ## 7. CLI Interface
 
 ```
-embedded-rag (rag) — Context Compiler for Embedded Projects
+hwcc — Context Compiler for Embedded Projects
 
 COMMANDS:
-  rag init [--chip <mcu>] [--rtos <rtos>]
+  hwcc init [--chip <mcu>] [--rtos <rtos>]
       Initialize .rag/ in current project. Auto-detects SVD/config files.
 
-  rag add <path> [--type <type>] [--chip <chip>] [--watch]
+  hwcc add <path> [--type <type>] [--chip <chip>] [--watch]
       Add document(s) to the index. Incremental — skips unchanged files.
       --type: datasheet|reference_manual|errata|schematic|app_note|code|auto
       --watch: Watch path for changes and auto-index
 
-  rag remove <doc_id|path>
+  hwcc remove <doc_id|path>
       Remove a document from the index.
 
-  rag status
+  hwcc status
       Show indexed documents, chunk count, last compile time.
 
-  rag compile [--target <tool>]
+  hwcc compile [--target <tool>]
       Regenerate all output files (CLAUDE.md, AGENTS.md, etc.)
       --target: claude|codex|cursor|gemini|all (default: all)
 
-  rag context <peripheral|query> [--copy] [--format md|json|text]
+  hwcc context <peripheral|query> [--copy] [--format md|json|text]
       Retrieve context for a peripheral or free-text query.
       --copy: Copy to clipboard
 
-  rag mcp [--port <port>]
+  hwcc mcp [--port <port>]
       Start MCP server (stdio by default, HTTP with --port).
 
-  rag search <query>
+  hwcc search <query>
       Search indexed documents. Returns ranked chunks with sources.
 
-  rag config [key] [value]
+  hwcc config [key] [value]
       Get/set configuration values.
 
-  rag install-hooks
+  hwcc install-hooks
       Install git hooks for auto-indexing and slash commands.
 
-  rag version
+  hwcc version
       Show version information.
 ```
 
@@ -485,7 +485,7 @@ COMMANDS:
 | Component | Choice | Rationale |
 |-----------|--------|-----------|
 | **Language** | Python 3.11+ | Ecosystem, community, ease of contribution |
-| **Package** | PyPI (`pip install embedded-rag`) | Standard distribution |
+| **Package** | PyPI (`pip install hwcc`) | Standard distribution |
 | **CLI framework** | Typer | Modern, type-safe, auto-generated help |
 | **Vector DB** | ChromaDB (PersistentClient) | File-based, no server, portable, incremental |
 | **Embeddings (default)** | nomic-embed-text via Ollama | Free, local, 768-dim, good quality |
@@ -559,7 +559,7 @@ Priority (configurable):
 ### Plugin Interface
 
 ```python
-from embedded_rag.plugin import Plugin, DocumentParser, KnowledgeProvider
+from hwcc.plugin import Plugin, DocumentParser, KnowledgeProvider
 
 class MyPlugin(Plugin):
     name = "stm32"
@@ -579,7 +579,7 @@ Uses Python entry_points (standard, zero-config):
 
 ```toml
 # pyproject.toml of a plugin package
-[project.entry-points."embedded_rag.plugins"]
+[project.entry-points."hwcc.plugins"]
 stm32 = "rag_plugin_stm32:STM32Plugin"
 ```
 
@@ -616,7 +616,7 @@ stm32 = "rag_plugin_stm32:STM32Plugin"
 Documents are indexed incrementally using content hashing:
 
 ```
-rag add docs/
+hwcc add docs/
 
 For each file in docs/:
   1. Compute SHA-256 hash
@@ -630,7 +630,7 @@ For each file in docs/:
 
 ChromaDB supports incremental insertion natively — new embeddings are added to the existing collection without rebuilding the HNSW index.
 
-Document removal: `rag remove <doc_id>` deletes chunks from ChromaDB and removes from manifest.
+Document removal: `hwcc remove <doc_id>` deletes chunks from ChromaDB and removes from manifest.
 
 ---
 
@@ -657,5 +657,5 @@ MIT License — free forever, no restrictions.
 - [x] ~~How to handle multi-chip projects?~~ → **YES, v1 scope.** Gap G5: real projects use multi-vendor chips. Support `--chip` tag per document. Single `.rag/` store, chip metadata on chunks.
 - [ ] Should the MCP server cache results for performance?
 - [ ] How to handle document versioning? (new datasheet revision replaces old)
-- [ ] Naming: `embedded-rag` vs `hwcontext` vs `embedded-context` vs other?
+- [x] ~~Naming~~ → **hwcc** (Hardware Context Compiler). Short, unix-style (like gcc), self-documenting. PyPI: `pip install hwcc`. CLI: `hwcc`.
 - [ ] Should we publish a formal "hardware llms.txt" spec proposal? (Gap G6)

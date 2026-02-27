@@ -45,6 +45,6 @@ Before committing:
 1. Tests pass: `pytest tests/`
 2. Lint passes: `ruff check src/ tests/`
 3. Format correct: `ruff format --check src/ tests/`
-4. Types correct: `mypy src/embedded_rag/`
+4. Types correct: `mypy src/hwcc/`
 5. No debug code left in
 6. Changes match planned scope

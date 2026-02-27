@@ -8,7 +8,7 @@
 - Use `TypeAlias` for complex type definitions
 
 ## Data Structures
-- Use `@dataclass` for data containers (RagConfig, Manifest, DocumentEntry)
+- Use `@dataclass` for data containers (HwccConfig, Manifest, DocumentEntry)
 - Use `@dataclass(frozen=True)` for immutable value objects (ChunkMetadata)
 - Field defaults: `field(default_factory=list)`
 - Use `pydantic.BaseModel` only if validation needed at system boundaries
@@ -21,7 +21,7 @@
 
 ## Error Handling
 - Never bare `except:` — always `except SpecificError`
-- Custom exception hierarchy: `EmbeddedRagError` base, then `ParseError`, `ConfigError`, `EmbeddingError`, `StoreError`
+- Custom exception hierarchy: `HwccError` base, then `ParseError`, `ConfigError`, `EmbeddingError`, `StoreError`
 - Use `raise ... from e` to preserve exception chains
 - Log errors before raising: `logger.error("Failed to parse %s: %s", path, e)`
 

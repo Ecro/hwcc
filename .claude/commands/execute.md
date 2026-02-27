@@ -80,7 +80,7 @@ Before writing code, verify:
 - [ ] All dependencies are met
 - [ ] Tests currently pass: `pytest tests/`
 - [ ] Lint passes: `ruff check src/ tests/`
-- [ ] Types pass: `mypy src/embedded_rag/`
+- [ ] Types pass: `mypy src/hwcc/`
 - [ ] Working directory is clean or changes are intentional
 
 ### Phase 3: TDD Implementation Loop (RED-GREEN-REFACTOR)
@@ -180,7 +180,7 @@ Use TaskCreate / TaskUpdate to track progress:
 #### 3h. Verify After Each Major Change
 
 ```bash
-ruff check src/ tests/ && mypy src/embedded_rag/
+ruff check src/ tests/ && mypy src/hwcc/
 ```
 
 #### TDD Exceptions
@@ -205,7 +205,7 @@ ruff check src/ tests/
 ruff format --check src/ tests/
 
 # Type check
-mypy src/embedded_rag/
+mypy src/hwcc/
 
 # All tests
 pytest tests/ -v

@@ -40,7 +40,7 @@ git diff --stat HEAD | tail -1
 
 ```bash
 ruff check src/ tests/ 2>&1 | tail -3
-mypy src/embedded_rag/ 2>&1 | tail -3
+mypy src/hwcc/ 2>&1 | tail -3
 pytest tests/ --tb=no -q 2>&1 | tail -3
 ```
 

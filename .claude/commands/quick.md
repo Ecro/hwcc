@@ -81,7 +81,7 @@ Implement the fix directly using Edit or Write tools.
 ### Step 5: Verify Build
 
 ```bash
-ruff check src/ tests/ && mypy src/embedded_rag/
+ruff check src/ tests/ && mypy src/hwcc/
 ```
 
 ### Step 6: Report

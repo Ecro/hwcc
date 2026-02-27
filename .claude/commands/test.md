@@ -49,7 +49,7 @@ python3 --version  # Must be 3.11+
 ruff check src/ tests/
 
 # Type check
-mypy src/embedded_rag/
+mypy src/hwcc/
 
 # Tests (fast, stop on first failure)
 pytest tests/ --tb=short -q -x
@@ -85,10 +85,10 @@ pytest tests/ -v
 
 ```bash
 # Terminal report with missing lines
-pytest --cov=embedded_rag --cov-report=term-missing tests/
+pytest --cov=hwcc --cov-report=term-missing tests/
 
 # Also generate HTML report
-pytest --cov=embedded_rag --cov-report=html tests/
+pytest --cov=hwcc --cov-report=html tests/
 ```
 
 ### Full Mode
@@ -103,10 +103,10 @@ ruff check src/ tests/
 ruff format --check src/ tests/
 
 # 3. Type check
-mypy src/embedded_rag/
+mypy src/hwcc/
 
 # 4. Full test suite with coverage
-pytest --cov=embedded_rag --cov-report=term-missing tests/ -v
+pytest --cov=hwcc --cov-report=term-missing tests/ -v
 ```
 
 **Report:**

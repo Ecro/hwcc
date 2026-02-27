@@ -1,4 +1,4 @@
-# Embedded RAG — Implementation Plan
+# hwcc — Implementation Plan
 
 > **Version**: 0.1.0-draft
 > **Date**: 2026-02-27
@@ -15,13 +15,13 @@ See TECH_SPEC.md §2 for full competitive landscape. These gaps have **zero comp
 | **P0** | SVD-first register context | Rock-solid SVD parser with bit fields, reset values, access types | Phase 1 (task 1.2) |
 | **P0** | Open-source HW context compiler | Working pipeline: add docs → get AI context | Phase 0 + 1 |
 | **P1** | Tool-agnostic multi-format output | CLAUDE.md + AGENTS.md + .cursorrules + MCP + clipboard from one compile | Phase 2 + 3 |
-| **P1** | Multi-vendor support | `rag add stm32.svd ti_power.pdf nxp_sensor.pdf` in one project | Phase 1 (per-doc `--chip` tag) |
+| **P1** | Multi-vendor support | `hwcc add stm32.svd ti_power.pdf nxp_sensor.pdf` in one project | Phase 1 (per-doc `--chip` tag) |
 | **P2** | Errata cross-referencing | Inline errata warnings on affected registers | Phase 2 (task 2.2) |
 | **P2** | Hardware llms.txt standard | Define the format via our Jinja2 templates | Phase 2 (task 2.3) |
 
 ### Implementation Principle
 
-> **Ship P0 first, fast.** A working `rag add board.svd` → `CLAUDE.md` with correct register maps beats a half-finished full pipeline. The SVD path is deterministic (no LLM), has proven market need (RespCode benchmarks), and has zero competition in open source.
+> **Ship P0 first, fast.** A working `hwcc add board.svd` → `CLAUDE.md` with correct register maps beats a half-finished full pipeline. The SVD path is deterministic (no LLM), has proven market need (RespCode benchmarks), and has zero competition in open source.
 
 ---
 
@@ -45,10 +45,10 @@ Phase 5 (Polish)         → Plugin system, tests, docs, PyPI release
 ### Tasks
 
 - [ ] **0.1** Initialize Python project with pyproject.toml
-  - Package name: `embedded-rag`
-  - CLI entry point: `rag`
+  - Package name: `hwcc`
+  - CLI entry point: `hwcc`
   - Python 3.11+ required
-  - Use `src/` layout: `src/embedded_rag/`
+  - Use `src/` layout: `src/hwcc/`
 
 - [ ] **0.2** Create config system (`config.toml` parser)
   - Define `RagConfig` dataclass
@@ -63,18 +63,18 @@ Phase 5 (Polish)         → Plugin system, tests, docs, PyPI release
   - Methods: `add_document()`, `remove_document()`, `is_changed()`, `get_document()`
 
 - [ ] **0.4** Create CLI skeleton with Typer
-  - `rag init`
-  - `rag add`
-  - `rag status`
-  - `rag compile`
-  - `rag context`
-  - `rag search`
-  - `rag mcp`
-  - `rag config`
-  - `rag version`
+  - `hwcc init`
+  - `hwcc add`
+  - `hwcc status`
+  - `hwcc compile`
+  - `hwcc context`
+  - `hwcc search`
+  - `hwcc mcp`
+  - `hwcc config`
+  - `hwcc version`
   - Rich output formatting
 
-- [ ] **0.5** Implement `rag init`
+- [ ] **0.5** Implement `hwcc init`
   - Create `.rag/` directory structure
   - Auto-detect SVD files in project
   - Auto-detect existing CLAUDE.md / AGENTS.md (non-destructive)
@@ -84,8 +84,8 @@ Phase 5 (Polish)         → Plugin system, tests, docs, PyPI release
 ### Deliverable
 ```bash
 cd my-project
-rag init --chip STM32F407
-rag status
+hwcc init --chip STM32F407
+hwcc status
 # → Shows empty project with config
 ```
 
@@ -148,7 +148,7 @@ rag status
   - Delete: remove chunks by doc_id
   - **Multi-vendor**: filter by `chip` metadata in queries (Gap G5)
 
-- [ ] **1.8** Implement `rag add`
+- [ ] **1.8** Implement `hwcc add`
   - Accept file path(s) or directory
   - Check manifest for existing/changed files
   - Process → chunk → embed → store pipeline
@@ -162,7 +162,7 @@ rag status
   - Remove from manifest
   - Remove processed markdown file
 
-- [ ] **1.10** Implement `rag status`
+- [ ] **1.10** Implement `hwcc status`
   - Show: document count, chunk count, total tokens
   - Per-document: name, type, chips, chunks, date added
   - Embedding model info
@@ -170,13 +170,13 @@ rag status
 
 ### Deliverable
 ```bash
-rag add board.svd --chip STM32F407
+hwcc add board.svd --chip STM32F407
 # → Parsed 43 peripherals, 892 registers          ← SVD FIRST (P0)
-rag add docs/STM32F407_datasheet.pdf --chip STM32F407
+hwcc add docs/STM32F407_datasheet.pdf --chip STM32F407
 # → Processing... 847 chunks indexed
-rag add docs/TPS65218_datasheet.pdf --chip TPS65218
+hwcc add docs/TPS65218_datasheet.pdf --chip TPS65218
 # → Processing... 312 chunks indexed (multi-vendor!)
-rag status
+hwcc status
 # → 3 documents (2 chips), 2,051 chunks, 1.1M tokens
 ```
 
@@ -206,7 +206,7 @@ rag status
 
 - [ ] **2.3** `[P2]` Jinja2 template system — **seeds hardware llms.txt standard (Gap G6)**
   - Template per output target: claude, codex, cursor, gemini, copilot
-  - Templates in `src/embedded_rag/templates/`
+  - Templates in `src/hwcc/templates/`
   - User-customizable: copy template to `.rag/templates/` to override
   - Well-documented template format = de facto standard for hardware context
 
@@ -216,24 +216,24 @@ rag status
   - `.gemini/GEMINI.md` generator
   - `.cursor/rules/hardware.mdc` generator
   - `.github/copilot-instructions.md` generator
-  - **Non-destructive**: only update between `<!-- BEGIN/END EMBEDDED-RAG -->` markers
+  - **Non-destructive**: only update between `<!-- BEGIN/END HWCC -->` markers
   - Detect and preserve existing user content
   - **One compile → all formats.** This is what Embedder can't do.
 
-- [ ] **2.5** Implement `rag compile`
+- [ ] **2.5** Implement `hwcc compile`
   - Generate hot context
   - Generate peripheral contexts
   - Generate all target output files
   - Report what was generated/updated
   - `--target` flag to compile for specific tool only
 
-- [ ] **2.6** Auto-compile on `rag add`
+- [ ] **2.6** Auto-compile on `hwcc add`
   - After adding new documents, auto-run compile
   - Can be disabled with `--no-compile` flag
 
 ### Deliverable
 ```bash
-rag compile
+hwcc compile
 # → Generated .rag/context/hot.md (118 lines)
 # → Generated .rag/context/peripherals/spi.md
 # → Generated .rag/context/peripherals/i2c.md
@@ -267,7 +267,7 @@ rag compile
     - `hw://peripherals` → list of peripherals
     - `hw://documents` → list of indexed documents
 
-- [ ] **3.2** Implement `rag mcp`
+- [ ] **3.2** Implement `hwcc mcp`
   - Start MCP server in foreground (stdio)
   - Optional `--port` for HTTP transport
   - Generate `.claude/mcp.json` config snippet
@@ -291,7 +291,7 @@ rag compile
   - Generate `.agents/skills/hw-lookup/SKILL.md`
   - Compatible with Codex skill discovery
 
-- [ ] **3.6** Implement `rag search`
+- [ ] **3.6** Implement `hwcc search`
   - CLI search interface
   - Hybrid search: vector similarity + keyword matching
   - Display results with Rich: source, page, relevance score
@@ -300,10 +300,10 @@ rag compile
 ### Deliverable
 ```bash
 # Start MCP server
-rag mcp
+hwcc mcp
 # → MCP server running (stdio)
 # → Configure in .claude/mcp.json:
-#   {"mcpServers": {"embedded-rag": {"command": "rag", "args": ["mcp"]}}}
+#   {"mcpServers": {"hwcc": {"command": "hwcc", "args": ["mcp"]}}}
 
 # In Claude Code:
 > "Write SPI DMA driver"
@@ -323,48 +323,48 @@ rag mcp
 
 ### Tasks
 
-- [ ] **4.1** Implement `rag context` clipboard mode
-  - `rag context SPI --copy` → clipboard
-  - `rag context --query "DMA channels" --copy`
-  - `rag context --all --copy` → full hot context
+- [ ] **4.1** Implement `hwcc context` clipboard mode
+  - `hwcc context SPI --copy` → clipboard
+  - `hwcc context --query "DMA channels" --copy`
+  - `hwcc context --all --copy` → full hot context
   - Format: clean markdown optimized for pasting into AI chat
   - Include source citations
 
 - [ ] **4.2** Implement pipe mode
-  - `rag context SPI` → stdout (default)
-  - `echo "prompt" | rag augment` → augmented prompt to stdout
-  - `rag context --format json` → machine-readable output
-  - `rag context --format text` → plain text (for simple LLMs)
+  - `hwcc context SPI` → stdout (default)
+  - `echo "prompt" | hwcc augment` → augmented prompt to stdout
+  - `hwcc context --format json` → machine-readable output
+  - `hwcc context --format text` → plain text (for simple LLMs)
 
-- [ ] **4.3** `rag augment` command
+- [ ] **4.3** `hwcc augment` command
   - Read prompt from stdin
   - Analyze prompt to detect relevant peripherals/topics
   - Retrieve relevant context
   - Output: augmented prompt with context prepended
-  - Use case: `echo "Write SPI driver" | rag augment | ollama run llama3.2`
+  - Use case: `echo "Write SPI driver" | hwcc augment | ollama run llama3.2`
 
 - [ ] **4.4** Watch mode for live re-indexing
-  - `rag add --watch docs/` → background file watcher
+  - `hwcc add --watch docs/` → background file watcher
   - Use `watchdog` library
   - On file change: re-process, update index, re-compile context
   - Useful during active development
 
 - [ ] **4.5** Git hook installer
-  - `rag install-hooks`
+  - `hwcc install-hooks`
   - pre-commit hook: auto-index new/changed docs in `docs/`
   - post-checkout hook: verify index is current
 
 ### Deliverable
 ```bash
 # Clipboard (any AI chat)
-rag context UART --copy
+hwcc context UART --copy
 # → Paste into ChatGPT / Gemini / Claude.ai
 
 # Pipe (scripting)
-echo "Fix the I2C timeout issue" | rag augment | ollama run qwen2.5
+echo "Fix the I2C timeout issue" | hwcc augment | ollama run qwen2.5
 
 # Automation
-rag add --watch docs/ &   # Background watcher
+hwcc add --watch docs/ &   # Background watcher
 # Drop new datasheet → auto-indexed → CLAUDE.md auto-updated
 ```
 
@@ -377,10 +377,10 @@ rag add --watch docs/ &   # Background watcher
 ### Tasks
 
 - [ ] **5.1** Plugin system
-  - Plugin base class: `embedded_rag.plugin.Plugin`
-  - Entry point discovery: `embedded_rag.plugins` group
+  - Plugin base class: `hwcc.plugin.Plugin`
+  - Entry point discovery: `hwcc.plugins` group
   - Plugin registry with version tracking
-  - `rag plugins` command to list installed plugins
+  - `hwcc plugins` command to list installed plugins
 
 - [ ] **5.2** STM32 plugin (first official plugin)
   - SVD parser (using cmsis-svd library)
@@ -415,9 +415,9 @@ rag add --watch docs/ &   # Background watcher
 
 - [ ] **5.7** PyPI release
   - Build and publish to PyPI
-  - `pip install embedded-rag`
+  - `pip install hwcc`
   - Verify clean install on fresh Python env
-  - CLI entry point works: `rag --help`
+  - CLI entry point works: `hwcc --help`
 
 - [ ] **5.8** GitHub repository setup
   - MIT license
@@ -428,13 +428,13 @@ rag add --watch docs/ &   # Background watcher
 
 ### Deliverable
 ```bash
-pip install embedded-rag
+pip install hwcc
 pip install rag-plugin-stm32  # Optional STM32 support
 
 cd my-project
-rag init --chip STM32F407
-rag add docs/
-rag status
+hwcc init --chip STM32F407
+hwcc add docs/
+hwcc status
 # → Ready to use with Claude Code / Codex / Cursor / any AI
 ```
 
@@ -444,14 +444,14 @@ rag status
 
 | Milestone | Phases | Key Deliverable | Priority | Gaps Addressed |
 |-----------|--------|-----------------|----------|----------------|
-| **M0: Skeleton** | Phase 0 | `rag init`, `rag status` work | P0 | G1 |
-| **M1: Core Pipeline** | Phase 1 | `rag add` processes SVDs and PDFs | **P0** | **G1, G2, G5** |
+| **M0: Skeleton** | Phase 0 | `hwcc init`, `hwcc status` work | P0 | G1 |
+| **M1: Core Pipeline** | Phase 1 | `hwcc add` processes SVDs and PDFs | **P0** | **G1, G2, G5** |
 | **M2: Context Output** | Phase 2 | Auto-generates CLAUDE.md et al. | **P1** | **G3, G4, G6** |
 | **M3: MCP + Commands** | Phase 3 | MCP server + /hw slash commands | P1 | G3 |
 | **M4: Universal** | Phase 4 | Clipboard, pipe, augment, watch | P1 | G3 |
 | **M5: Release** | Phase 5 | PyPI package, plugin system, docs | P1 | G1 |
 
-> **MVP = M0 + M1 + M2.** A working `rag add board.svd && rag compile` that produces CLAUDE.md with correct register maps fills the #1 market gap with zero competition.
+> **MVP = M0 + M1 + M2.** A working `hwcc add board.svd && hwcc compile` that produces CLAUDE.md with correct register maps fills the #1 market gap with zero competition.
 
 ---
 
@@ -486,14 +486,14 @@ rag status
 ## File Structure (Implementation)
 
 ```
-embedded-rag/
+hwcc/
 ├── pyproject.toml
 ├── LICENSE                          # MIT
 ├── README.md
 ├── TECH_SPEC.md
 ├── PLAN.md
 │
-├── src/embedded_rag/
+├── src/hwcc/
 │   ├── __init__.py                  # Version, package metadata
 │   ├── cli.py                       # Typer CLI (all commands)
 │   ├── config.py                    # Config dataclass + TOML loader
