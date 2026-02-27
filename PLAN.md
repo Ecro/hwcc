@@ -6,13 +6,32 @@
 
 ---
 
+## Strategic Focus (from Competitive Analysis)
+
+See TECH_SPEC.md §2 for full competitive landscape. These gaps have **zero competition** and drive our priority order:
+
+| Priority | Gap | What to Ship | Addressed In |
+|----------|-----|-------------|-------------|
+| **P0** | SVD-first register context | Rock-solid SVD parser with bit fields, reset values, access types | Phase 1 (task 1.2) |
+| **P0** | Open-source HW context compiler | Working pipeline: add docs → get AI context | Phase 0 + 1 |
+| **P1** | Tool-agnostic multi-format output | CLAUDE.md + AGENTS.md + .cursorrules + MCP + clipboard from one compile | Phase 2 + 3 |
+| **P1** | Multi-vendor support | `rag add stm32.svd ti_power.pdf nxp_sensor.pdf` in one project | Phase 1 (per-doc `--chip` tag) |
+| **P2** | Errata cross-referencing | Inline errata warnings on affected registers | Phase 2 (task 2.2) |
+| **P2** | Hardware llms.txt standard | Define the format via our Jinja2 templates | Phase 2 (task 2.3) |
+
+### Implementation Principle
+
+> **Ship P0 first, fast.** A working `rag add board.svd` → `CLAUDE.md` with correct register maps beats a half-finished full pipeline. The SVD path is deterministic (no LLM), has proven market need (RespCode benchmarks), and has zero competition in open source.
+
+---
+
 ## Phased Approach
 
 ```
 Phase 0 (Foundation)     → Project setup, core data structures
-Phase 1 (Ingest)         → Add documents, process, chunk, store
-Phase 2 (Compile)        → Generate static context files
-Phase 3 (Serve)          → MCP server + slash commands
+Phase 1 (Ingest)         → Add documents, process, chunk, store       ← P0 focus
+Phase 2 (Compile)        → Generate static context files               ← P1 focus
+Phase 3 (Serve)          → MCP server + slash commands                 ← P1 focus
 Phase 4 (Integrate)      → Clipboard, pipe, agent skill
 Phase 5 (Polish)         → Plugin system, tests, docs, PyPI release
 ```
@@ -76,6 +95,8 @@ rag status
 
 **Goal**: Add documents, process them into clean markdown, chunk, embed, store.
 
+> **Strategic note**: SVD parser (1.2) is **P0 — ship first**. It is deterministic, has zero LLM dependency, and directly addresses the #1 market gap (wrong register addresses). PDF parser (1.3) follows as P0 but is secondary to SVD.
+
 ### Tasks
 
 - [ ] **1.1** File type detection
@@ -83,18 +104,21 @@ rag status
   - Map to parser: PDF, markdown, text, SVD, DTS, C/H headers
   - Auto-classify document type (datasheet, reference manual, errata, etc.)
 
-- [ ] **1.2** PDF parser
+- [ ] **1.2** `[P0]` SVD parser — **#1 DIFFERENTIATOR**
+  - Parse CMSIS-SVD files using `cmsis-svd` library
+  - Extract: peripherals, registers, fields, bit positions, descriptions, reset values, access types (read-only/write-only/read-write)
+  - Generate structured register map in markdown: one table per peripheral
+  - Include field-level detail: bit range, reset value, description
+  - Support multi-chip: `--chip` tag stored in metadata per document
+  - This is 100% DETERMINISTIC — no LLM needed, highest reliability
+  - **Why first**: RespCode benchmarks prove 3/4 LLMs get register addresses wrong. SVD context fixes this at the source.
+
+- [ ] **1.3** `[P0]` PDF parser
   - Extract text with PyMuPDF (fitz)
   - Extract tables with pdfplumber → markdown table format
   - Preserve section headings hierarchy
   - Remove headers/footers/page numbers
   - Output: clean markdown with metadata
-
-- [ ] **1.3** SVD parser
-  - Parse CMSIS-SVD files using `cmsis-svd` library
-  - Extract: peripherals, registers, fields, descriptions, reset values
-  - Output: structured register map in markdown
-  - This is DETERMINISTIC — no LLM needed, highest reliability
 
 - [ ] **1.4** Markdown / text passthrough
   - Normalize whitespace and encoding
@@ -107,7 +131,7 @@ rag status
   - Table-aware: never split mid-table
   - Code-block-aware: never split mid-code-block
   - Section-boundary-aware: prefer splitting at headings
-  - Metadata per chunk: doc_id, section_path, page, chunk_level, peripheral
+  - Metadata per chunk: doc_id, section_path, page, chunk_level, peripheral, **chip** (for multi-vendor support — Gap G5)
 
 - [ ] **1.6** Embedding engine
   - Abstract `EmbeddingProvider` interface
@@ -122,6 +146,7 @@ rag status
   - Store: embedding, chunk text, metadata
   - Incremental: add new chunks without rebuilding
   - Delete: remove chunks by doc_id
+  - **Multi-vendor**: filter by `chip` metadata in queries (Gap G5)
 
 - [ ] **1.8** Implement `rag add`
   - Accept file path(s) or directory
@@ -129,7 +154,7 @@ rag status
   - Process → chunk → embed → store pipeline
   - Update manifest
   - Print progress with Rich
-  - Support `--type` and `--chip` hints
+  - Support `--type` and `--chip` hints (**multi-vendor** from day one — Gap G5)
   - Support `--watch` for file watching (watchdog library)
 
 - [ ] **1.9** Implement `rag remove`
@@ -139,20 +164,20 @@ rag status
 
 - [ ] **1.10** Implement `rag status`
   - Show: document count, chunk count, total tokens
-  - Per-document: name, type, chunks, date added
+  - Per-document: name, type, chips, chunks, date added
   - Embedding model info
   - Store size on disk
 
 ### Deliverable
 ```bash
-rag add docs/STM32F407_datasheet.pdf
+rag add board.svd --chip STM32F407
+# → Parsed 43 peripherals, 892 registers          ← SVD FIRST (P0)
+rag add docs/STM32F407_datasheet.pdf --chip STM32F407
 # → Processing... 847 chunks indexed
-rag add docs/RM0090_reference_manual.pdf
-# → Processing... 2,341 chunks indexed
-rag add board.svd
-# → Parsed 43 peripherals, 892 registers
+rag add docs/TPS65218_datasheet.pdf --chip TPS65218
+# → Processing... 312 chunks indexed (multi-vendor!)
 rag status
-# → 3 documents, 4,080 chunks, 2.1M tokens
+# → 3 documents (2 chips), 2,051 chunks, 1.1M tokens
 ```
 
 ---
@@ -161,6 +186,8 @@ rag status
 
 **Goal**: Generate output files that AI coding tools consume.
 
+> **Strategic note**: Multi-format output (2.4) addresses Gap G3 — tool-agnostic is our key differentiator vs Embedder's IDE lock-in. Errata cross-referencing (2.2) addresses Gap G4. Template system (2.3) seeds Gap G6 (hardware llms.txt standard).
+
 ### Tasks
 
 - [ ] **2.1** Hot context generator
@@ -168,19 +195,22 @@ rag status
   - Include: chip summary, peripheral list, errata highlights, conventions
   - Respect `hot_context_max_lines` config (default 120)
   - Prioritize: errata > chip specs > peripheral list > conventions
+  - **Multi-chip**: list all chips in project with key specs
 
-- [ ] **2.2** Peripheral context generator
+- [ ] **2.2** `[P1/P2]` Peripheral context generator
   - Compile `.rag/context/peripherals/<name>.md` per peripheral
-  - Include: register map, clock config, DMA mapping, pin mapping, errata
+  - Include: register map, clock config, DMA mapping, pin mapping
   - Sources: SVD data + datasheet chunks + ref manual chunks
   - Cross-reference across documents
+  - **`[P2]` Errata integration (Gap G4)**: cross-reference errata entries with affected registers. Inline warnings: `⚠ ERRATA ES0182 §2.1.8: SPI CRC not reliable in slave mode at frequencies > 18 MHz`
 
-- [ ] **2.3** Jinja2 template system
+- [ ] **2.3** `[P2]` Jinja2 template system — **seeds hardware llms.txt standard (Gap G6)**
   - Template per output target: claude, codex, cursor, gemini, copilot
   - Templates in `src/embedded_rag/templates/`
   - User-customizable: copy template to `.rag/templates/` to override
+  - Well-documented template format = de facto standard for hardware context
 
-- [ ] **2.4** Output file generators
+- [ ] **2.4** `[P1]` Output file generators — **tool-agnostic differentiator (Gap G3)**
   - `CLAUDE.md` generator: inject hardware section with markers
   - `AGENTS.md` generator: Codex-compatible format
   - `.gemini/GEMINI.md` generator
@@ -188,6 +218,7 @@ rag status
   - `.github/copilot-instructions.md` generator
   - **Non-destructive**: only update between `<!-- BEGIN/END EMBEDDED-RAG -->` markers
   - Detect and preserve existing user content
+  - **One compile → all formats.** This is what Embedder can't do.
 
 - [ ] **2.5** Implement `rag compile`
   - Generate hot context
@@ -411,14 +442,16 @@ rag status
 
 ## Milestone Summary
 
-| Milestone | Phases | Key Deliverable | Est. Scope |
-|-----------|--------|-----------------|------------|
-| **M0: Skeleton** | Phase 0 | `rag init`, `rag status` work | Small |
-| **M1: Core Pipeline** | Phase 1 | `rag add` processes PDFs and SVDs | Medium |
-| **M2: Context Output** | Phase 2 | Auto-generates CLAUDE.md et al. | Medium |
-| **M3: MCP + Commands** | Phase 3 | MCP server + /hw slash commands | Medium |
-| **M4: Universal** | Phase 4 | Clipboard, pipe, augment, watch | Small |
-| **M5: Release** | Phase 5 | PyPI package, plugin system, docs | Medium |
+| Milestone | Phases | Key Deliverable | Priority | Gaps Addressed |
+|-----------|--------|-----------------|----------|----------------|
+| **M0: Skeleton** | Phase 0 | `rag init`, `rag status` work | P0 | G1 |
+| **M1: Core Pipeline** | Phase 1 | `rag add` processes SVDs and PDFs | **P0** | **G1, G2, G5** |
+| **M2: Context Output** | Phase 2 | Auto-generates CLAUDE.md et al. | **P1** | **G3, G4, G6** |
+| **M3: MCP + Commands** | Phase 3 | MCP server + /hw slash commands | P1 | G3 |
+| **M4: Universal** | Phase 4 | Clipboard, pipe, augment, watch | P1 | G3 |
+| **M5: Release** | Phase 5 | PyPI package, plugin system, docs | P1 | G1 |
+
+> **MVP = M0 + M1 + M2.** A working `rag add board.svd && rag compile` that produces CLAUDE.md with correct register maps fills the #1 market gap with zero competition.
 
 ---
 
@@ -442,9 +475,11 @@ rag status
 - Subscription / payment system
 - Plugin marketplace
 - Image/schematic captioning (requires vision LLM — defer to v2)
-- Multi-chip project support (defer to v2)
+- ~~Multi-chip project support~~ → **MOVED TO v1 SCOPE** (Gap G5: real projects need multi-vendor)
 - Fine-tuned embedding models
 - Knowledge graph / GraphRAG
+- Post-generation validation (RespCode's approach — we solve pre-generation instead)
+- Vendor-specific MCP federation (aggregating Microchip MCP + our data — future)
 
 ---
 

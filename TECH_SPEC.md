@@ -32,15 +32,82 @@ WITH embedded-rag:
 
 ### Why This Won't Become Obsolete
 
-Even as context windows grow to 1M+ tokens, preprocessing has permanent value:
+Even as context windows grow to 1M+ tokens (Claude Opus 4.6, Gemini 2M planned), preprocessing has permanent value:
 - Structured data (SVD → register maps) is always more reliable than LLM-parsed PDFs
 - Cost: RAG is 1,250x cheaper per query than stuffing full context
-- "Lost in middle" problem: accuracy degrades 30%+ at full context window load
+- "Lost in middle" / "context rot": accuracy degrades 30%+ at full context window load — confirmed in 2026 benchmarks across all major models
 - Clean markdown tables > raw PDF text extraction
+- Compaction-proof: Claude and GPT-5.1 now offer "compaction" (context summarization for infinite conversations), but compaction *loses register-level precision*. Pre-compiled SVD context is immune to compaction loss.
 
 ---
 
-## 2. Architecture Overview
+## 2. Competitive Landscape & Strategic Gaps
+
+### 2.1 Market Positioning
+
+```
+                        Hardware-Specific Knowledge
+                        Low ◄──────────────────► High
+                        │                         │
+  Full IDE/Platform  ── │  Cursor / Codex         │  Embedder (YC S25)
+                        │  (generic AI IDEs)      │  (closed, enterprise $$$)
+                        │                         │
+  Preprocessing /    ── │  Skill Seekers          │  ★ EMBEDDED RAG ★
+  Context Compiler      │  CTX, RAG-CLI           │  (open source, tool-agnostic)
+                        │  (no HW knowledge)      │
+  Validation /       ── │                         │  RespCode
+  Post-Processing       │                         │  (closed, post-gen fix)
+                        │                         │
+  Vendor Data        ── │                         │  Microchip MCP
+  Server                │                         │  (free, single vendor)
+```
+
+### 2.2 Direct Competitors
+
+| Competitor | Type | Differentiator from Us |
+|-----------|------|----------------------|
+| **Embedder** (YC S25) | Closed IDE, enterprise + free maker tier | v0.2.0 shipped with unlimited maker plan, TUI, LSP integration. Nominated for embedded award 2026. We are open-source and tool-agnostic — they still lock you into their IDE, but the free tier lowers their barrier for hobbyists. |
+| **RespCode** | Closed SaaS | They fix wrong code *after* generation. We prevent it *before* by providing correct context. |
+| **Skill Seekers** | Open-source preprocessor | General-purpose (React docs, Django). Zero hardware domain knowledge — no SVD, no register maps, no errata. |
+| **CTX / RAG-CLI** | Open-source tools | Codebase context only. No PDF parsing, no hardware doc understanding. |
+| **Microchip MCP** | Free vendor server | Single vendor, product selection data only. No register-level programming context. |
+
+### 2.3 MUST FOCUS: Strategic Gaps (No Competition)
+
+These are gaps where **no existing tool (open or closed) addresses the need**. They define our development priorities.
+
+| ID | Gap | Why It Matters | Priority |
+|----|-----|---------------|----------|
+| **G1** | **Open-source hardware context compiler** | Nobody does this. Embedder is closed/enterprise. Skill Seekers is generic. Zero open-source tools parse hardware docs into AI-ready context. | **P0** |
+| **G2** | **SVD-first register context** | RespCode proved LLMs get register addresses wrong. They fix *after* generation (validation). We fix *before* (context injection). Pre-generation is fundamentally better — correct on first try. | **P0** |
+| **G3** | **Tool-agnostic multi-format output** | Embedder locks you into their IDE. Every other tool is vendor-locked or single-format. Nobody outputs to ALL coding tools simultaneously (CLAUDE.md + .cursorrules + MCP + clipboard). | **P1** |
+| **G4** | **Errata cross-referencing** | No tool systematically cross-references errata with register context. Engineers still manually check errata PDFs. Inline errata warnings = prevented hardware bugs. | **P2** |
+| **G5** | **Multi-vendor in one project** | Real projects use STM32 + TI power IC + NXP sensor. Microchip MCP only covers Microchip. Nobody aggregates cross-vendor context in a single project. | **P1** |
+| **G6** | **Hardware llms.txt standard** | The llms.txt standard exists for web docs. Nobody has defined what hardware-optimized AI context looks like. First mover defines the format. | **P2** |
+
+### 2.4 Complementary Ecosystem (Not Competitors)
+
+Hardware MCP servers are emerging but serve **different use cases** — interaction with hardware, not documentation preprocessing. These are potential integration partners:
+
+| Tool | What It Does | Relationship to Us |
+|------|-------------|-------------------|
+| `embedded-debugger-mcp` (probe-rs) | Debug ARM/RISC-V via MCP — flash, breakpoints, memory read | Complementary. Our doc context + their debugger = full AI-assisted embedded workflow. |
+| `EmbedMCP` | C library to run MCP servers ON embedded devices | Different layer. They expose device APIs; we expose device documentation. |
+| `serial-mcp-server` | Serial port comms via MCP for IoT/embedded | Complementary. Hardware interaction, not documentation. |
+
+### 2.5 Validation from Market
+
+- **RespCode benchmarks**: 3 of 4 flagship LLMs produce firmware with wrong register addresses without proper context. Our approach prevents this at the source.
+- **Academic research (2026)**: Multiple papers confirm LLMs still hallucinate register addresses and introduce security vulnerabilities in generated firmware (arXiv:2509.09970, arXiv:2601.19106). Post-generation validation is an active research area — our pre-generation context injection is the complementary approach.
+- **Microchip MCP server**: Silicon vendor validating the MCP-based approach. Their server covers product selection, not programming context — complementary, not competitive.
+- **MCP ecosystem growth**: 425 servers (Aug 2025) → 1,412 (Feb 2026) — 232% growth in 6 months. Gartner projects 75% of API gateway vendors will have MCP features by 2026. Strong tailwind for our MCP server output.
+- **HN discussion (Embedder launch)**: Engineers confirm SVD/structured data > PDF parsing for register accuracy. PDF-only approaches are insufficient.
+- **SO Developer Survey 2025**: 84% of devs use AI tools, but only 29% trust output accuracy. Hardware context compilation directly addresses the trust gap.
+- **llms.txt standard**: 844K+ websites adopted the web variant. No hardware variant exists. Gap G6 is wide open for first-mover definition.
+
+---
+
+## 3. Architecture Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -64,7 +131,7 @@ Even as context windows grow to 1M+ tokens, preprocessing has permanent value:
 
 ---
 
-## 3. Data Store Structure
+## 4. Data Store Structure
 
 Every project gets a `.rag/` directory:
 
@@ -173,9 +240,9 @@ hot_context_max_lines = 120          # Max lines for CLAUDE.md hardware section
 
 ---
 
-## 4. Ingestion Pipeline
+## 5. Ingestion Pipeline
 
-### 4.1 Document Type Detection
+### 5.1 Document Type Detection
 
 ```
 Input file → detect type → route to parser
@@ -194,7 +261,7 @@ Supported types:
 └── .png/.jpg     → Image captioning (requires vision LLM, optional)
 ```
 
-### 4.2 Processing Pipeline
+### 5.2 Processing Pipeline
 
 ```
 Raw Document
@@ -240,7 +307,7 @@ Raw Document
 
 **Key design**: Steps 1-3, 5, 7 are fully deterministic — no LLM needed. Step 4 is optional enrichment. Step 6 needs an embedding model (local by default via Ollama).
 
-### 4.3 Chunking Strategy
+### 5.3 Chunking Strategy
 
 | Strategy | When Used | Token Size | Overlap |
 |----------|-----------|-----------|---------|
@@ -250,7 +317,7 @@ Raw Document
 | Hierarchical | Large sections | Summary (256) + details (512) | 10% |
 | Code-block preserve | Code examples | Full block as one chunk | None |
 
-### 4.4 Metadata Per Chunk
+### 5.4 Metadata Per Chunk
 
 ```json
 {
@@ -269,9 +336,9 @@ Raw Document
 
 ---
 
-## 5. Output / Serving Layer
+## 6. Output / Serving Layer
 
-### 5.1 Static Context Files
+### 6.1 Static Context Files
 
 Auto-generated after every `rag add` or `rag compile`:
 
@@ -295,7 +362,7 @@ Auto-generated after every `rag add` or `rag compile`:
 <!-- END EMBEDDED-RAG CONTEXT -->
 ```
 
-### 5.2 MCP Server
+### 6.2 MCP Server
 
 Exposed tools:
 
@@ -310,7 +377,7 @@ Exposed tools:
 
 Transport: stdio (local, default) or HTTP (for remote/team setups).
 
-### 5.3 Slash Commands
+### 6.3 Slash Commands
 
 Installed to `.claude/commands/`:
 
@@ -325,7 +392,7 @@ Installed to `.claude/commands/`:
 
 For Codex: installed to `.agents/skills/hw-lookup/SKILL.md`.
 
-### 5.4 Clipboard Mode
+### 6.4 Clipboard Mode
 
 ```bash
 rag context SPI --copy              # Copy SPI context to clipboard
@@ -333,7 +400,7 @@ rag context --query "DMA" --copy    # Search and copy results
 rag context --all --copy            # Copy full hot context
 ```
 
-### 5.5 Pipe Mode
+### 6.5 Pipe Mode
 
 ```bash
 rag context SPI | some-llm-cli     # Pipe to any CLI tool
@@ -341,7 +408,7 @@ cat prompt.txt | rag augment        # Augment stdin with relevant context
 rag context --format json           # Machine-readable output
 ```
 
-### 5.6 Agent Skill (Auto-trigger)
+### 6.6 Agent Skill (Auto-trigger)
 
 ```yaml
 # .claude/skills/hw-context/SKILL.md
@@ -367,7 +434,7 @@ Never guess register addresses. Always verify against indexed documentation.
 
 ---
 
-## 6. CLI Interface
+## 7. CLI Interface
 
 ```
 embedded-rag (rag) — Context Compiler for Embedded Projects
@@ -413,7 +480,7 @@ COMMANDS:
 
 ---
 
-## 7. Technology Stack
+## 8. Technology Stack
 
 | Component | Choice | Rationale |
 |-----------|--------|-----------|
@@ -456,7 +523,7 @@ pyperclip >= 1.8        # Clipboard support
 
 ---
 
-## 8. Embedding & LLM Provider System
+## 9. Embedding & LLM Provider System
 
 ### Embedding Providers
 
@@ -487,7 +554,7 @@ Priority (configurable):
 
 ---
 
-## 9. Plugin System
+## 10. Plugin System
 
 ### Plugin Interface
 
@@ -529,7 +596,7 @@ stm32 = "rag_plugin_stm32:STM32Plugin"
 
 ---
 
-## 10. Integration Compatibility
+## 11. Integration Compatibility
 
 | Feature | Claude Code | Codex CLI | Cursor | Gemini CLI | ChatGPT Web | Ollama | Aider |
 |---------|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
@@ -544,7 +611,7 @@ stm32 = "rag_plugin_stm32:STM32Plugin"
 
 ---
 
-## 11. Incremental Indexing
+## 12. Incremental Indexing
 
 Documents are indexed incrementally using content hashing:
 
@@ -567,7 +634,7 @@ Document removal: `rag remove <doc_id>` deletes chunks from ChromaDB and removes
 
 ---
 
-## 12. Security & Privacy
+## 13. Security & Privacy
 
 - **100% local by default**: All processing runs on the user's machine
 - **No telemetry**: No data collection, no phone-home
@@ -578,16 +645,17 @@ Document removal: `rag remove <doc_id>` deletes chunks from ChromaDB and removes
 
 ---
 
-## 13. License
+## 14. License
 
 MIT License — free forever, no restrictions.
 
 ---
 
-## 14. Open Questions
+## 15. Open Questions
 
 - [ ] Should `.rag/` be gitignored or committed? (index is regenerable, but slow)
-- [ ] How to handle multi-chip projects? (e.g., MCU + wireless SoC)
+- [x] ~~How to handle multi-chip projects?~~ → **YES, v1 scope.** Gap G5: real projects use multi-vendor chips. Support `--chip` tag per document. Single `.rag/` store, chip metadata on chunks.
 - [ ] Should the MCP server cache results for performance?
 - [ ] How to handle document versioning? (new datasheet revision replaces old)
 - [ ] Naming: `embedded-rag` vs `hwcontext` vs `embedded-context` vs other?
+- [ ] Should we publish a formal "hardware llms.txt" spec proposal? (Gap G6)
