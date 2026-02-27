@@ -104,7 +104,7 @@ hwcc status
   - Map to parser: PDF, markdown, text, SVD, DTS, C/H headers
   - Auto-classify document type (datasheet, reference manual, errata, etc.)
 
-- [ ] **1.2** `[P0]` SVD parser — **#1 DIFFERENTIATOR**
+- [x] **1.2** `[P0]` SVD parser — **#1 DIFFERENTIATOR**
   - Parse CMSIS-SVD files using `cmsis-svd` library
   - Extract: peripherals, registers, fields, bit positions, descriptions, reset values, access types (read-only/write-only/read-write)
   - Generate structured register map in markdown: one table per peripheral

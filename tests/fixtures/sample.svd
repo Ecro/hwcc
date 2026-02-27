@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="utf-8"?>
+<device schemaVersion="1.1" xmlns:xs="http://www.w3.org/2001/XMLSchema-instance" xs:noNamespaceSchemaLocation="CMSIS-SVD.xsd">
+  <vendor>TestVendor</vendor>
+  <name>TESTCHIP</name>
+  <series>TEST</series>
+  <version>1.0</version>
+  <description>Test chip for unit testing</description>
+  <addressUnitBits>8</addressUnitBits>
+  <width>32</width>
+  <size>32</size>
+  <access>read-write</access>
+  <resetValue>0x00000000</resetValue>
+  <resetMask>0xFFFFFFFF</resetMask>
+
+  <cpu>
+    <name>CM4</name>
+    <revision>r1p0</revision>
+    <endian>little</endian>
+    <mpuPresent>true</mpuPresent>
+    <fpuPresent>true</fpuPresent>
+    <nvicPrioBits>4</nvicPrioBits>
+    <vendorSystickConfig>false</vendorSystickConfig>
+  </cpu>
+
+  <peripherals>
+    <!-- TIMER0: Full peripheral with registers and fields -->
+    <peripheral>
+      <name>TIMER0</name>
+      <description>General-purpose timer</description>
+      <baseAddress>0x40000000</baseAddress>
+      <addressBlock>
+        <offset>0x0</offset>
+        <size>0x400</size>
+        <usage>registers</usage>
+      </addressBlock>
+      <interrupt>
+        <name>TIMER0_IRQ</name>
+        <description>TIMER0 interrupt</description>
+        <value>10</value>
+      </interrupt>
+      <registers>
+        <!-- CR: Control register with fields -->
+        <register>
+          <name>CR</name>
+          <description>Control register</description>
+          <addressOffset>0x00</addressOffset>
+          <size>32</size>
+          <access>read-write</access>
+          <resetValue>0x00000000</resetValue>
+          <fields>
+            <field>
+              <name>EN</name>
+              <description>Timer enable</description>
+              <bitOffset>0</bitOffset>
+              <bitWidth>1</bitWidth>
+              <access>read-write</access>
+            </field>
+            <field>
+              <name>MODE</name>
+              <description>Timer mode</description>
+              <bitOffset>1</bitOffset>
+              <bitWidth>2</bitWidth>
+              <access>read-write</access>
+            </field>
+            <field>
+              <name>IRQ_EN</name>
+              <description>Interrupt enable</description>
+              <bitOffset>3</bitOffset>
+              <bitWidth>1</bitWidth>
+              <access>read-write</access>
+            </field>
+          </fields>
+        </register>
+        <!-- SR: Status register (read-only) -->
+        <register>
+          <name>SR</name>
+          <description>Status register</description>
+          <addressOffset>0x04</addressOffset>
+          <size>32</size>
+          <access>read-only</access>
+          <resetValue>0x00000001</resetValue>
+          <fields>
+            <field>
+              <name>BUSY</name>
+              <description>Timer busy</description>
+              <bitOffset>0</bitOffset>
+              <bitWidth>1</bitWidth>
+              <access>read-only</access>
+            </field>
+            <field>
+              <name>OVF</name>
+              <description>Overflow flag</description>
+              <bitOffset>1</bitOffset>
+              <bitWidth>1</bitWidth>
+              <access>read-only</access>
+            </field>
+          </fields>
+        </register>
+        <!-- CNT: Counter register (no fields) -->
+        <register>
+          <name>CNT</name>
+          <description>Counter value</description>
+          <addressOffset>0x08</addressOffset>
+          <size>32</size>
+          <access>read-only</access>
+          <resetValue>0x00000000</resetValue>
+        </register>
+      </registers>
+    </peripheral>
+
+    <!-- TIMER1: Derived from TIMER0 with different base address -->
+    <peripheral derivedFrom="TIMER0">
+      <name>TIMER1</name>
+      <baseAddress>0x40001000</baseAddress>
+      <interrupt>
+        <name>TIMER1_IRQ</name>
+        <description>TIMER1 interrupt</description>
+        <value>11</value>
+      </interrupt>
+    </peripheral>
+
+    <!-- GPIO: Peripheral with no registers (edge case) -->
+    <peripheral>
+      <name>GPIO</name>
+      <description>General-purpose I/O</description>
+      <baseAddress>0x50000000</baseAddress>
+      <addressBlock>
+        <offset>0x0</offset>
+        <size>0x400</size>
+        <usage>registers</usage>
+      </addressBlock>
+    </peripheral>
+  </peripherals>
+</device>
