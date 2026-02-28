@@ -148,7 +148,7 @@ hwcc status
   - Delete: remove chunks by doc_id
   - **Multi-vendor**: filter by `chip` metadata in queries (Gap G5)
 
-- [ ] **1.8** Implement `hwcc add`
+- [x] **1.8** Implement `hwcc add`
   - Accept file path(s) or directory
   - Check manifest for existing/changed files
   - Process → chunk → embed → store pipeline

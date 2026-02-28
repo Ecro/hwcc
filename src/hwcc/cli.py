@@ -5,6 +5,9 @@ Typer-based command-line interface with Rich output formatting.
 
 from __future__ import annotations
 
+import logging
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -12,7 +15,21 @@ from rich.console import Console
 from rich.table import Table
 
 from hwcc import __version__
+from hwcc.chunk import MarkdownChunker
+from hwcc.config import load_config
+from hwcc.exceptions import HwccError
+from hwcc.ingest import detect_file_type, get_parser
+from hwcc.manifest import (
+    DocumentEntry,
+    compute_hash,
+    load_manifest,
+    make_doc_id,
+    save_manifest,
+)
+from hwcc.pipeline import Pipeline
 from hwcc.project import ProjectManager
+from hwcc.registry import default_registry
+from hwcc.store import ChromaStore
 
 __all__ = ["app"]
 
@@ -125,7 +142,122 @@ def add(
     ] = False,
 ) -> None:
     """Add document(s) to the index."""
-    _not_implemented("add")
+    logger = logging.getLogger(__name__)
+
+    if watch:
+        console.print("[yellow]--watch is not yet implemented.[/yellow]")
+        raise typer.Exit(code=0)
+
+    pm = ProjectManager()
+    if not pm.is_initialized:
+        console.print("[yellow]No hwcc project found.[/yellow] Run [bold]hwcc init[/bold] first.")
+        raise typer.Exit(code=1)
+
+    if not paths:
+        console.print("[yellow]No file paths provided.[/yellow] Usage: hwcc add <file> [file ...]")
+        raise typer.Exit(code=1)
+
+    config = load_config(pm.config_path)
+    manifest = load_manifest(pm.manifest_path)
+
+    # Build shared pipeline components
+    try:
+        chunker = MarkdownChunker()
+        embedder = default_registry.create("embedding", config.embedding.provider, config)
+        store = ChromaStore(
+            persist_path=pm.rag_dir / "index",
+            collection_name=config.store.collection_name,
+        )
+    except HwccError as e:
+        console.print(f"[red]Failed to initialize pipeline:[/red] {e}")
+        raise typer.Exit(code=1) from e
+
+    added_count = 0
+    skipped_count = 0
+    total_chunks = 0
+
+    for path_str in paths:
+        file_path = Path(path_str).resolve()
+
+        if not file_path.exists():
+            console.print(f"  [red]File not found:[/red] {path_str}")
+            continue
+
+        # Detect file type
+        info = detect_file_type(file_path)
+        if not info.parser_name:
+            console.print(
+                f"  [yellow]Unsupported format:[/yellow] {file_path.name} ({info.format})"
+            )
+            continue
+
+        # Determine effective doc_type and chip
+        effective_doc_type = doc_type if doc_type != "auto" else str(info.doc_type)
+        effective_chip = chip or config.hardware.mcu
+
+        # Check manifest for changes
+        doc_id = make_doc_id(file_path)
+        file_hash = compute_hash(file_path)
+
+        if not manifest.is_changed(doc_id, file_hash):
+            console.print(f"  [dim]Skipped {file_path.name} (unchanged)[/dim]")
+            skipped_count += 1
+            continue
+
+        console.print(f"Processing [bold]{file_path.name}[/bold] ...")
+
+        # Remove old chunks if re-indexing a changed document
+        if manifest.get_document(doc_id) is not None:
+            try:
+                store.delete(doc_id)
+            except HwccError as e:
+                logger.warning("Failed to remove old chunks for %s: %s", doc_id, e)
+
+        # Build pipeline for this file
+        try:
+            parser = get_parser(info.parser_name)
+            pipeline = Pipeline(
+                parser=parser,
+                chunker=chunker,
+                embedder=embedder,
+                store=store,
+                config=config,
+            )
+            chunk_count = pipeline.process(
+                path=file_path,
+                doc_id=doc_id,
+                doc_type=effective_doc_type,
+                chip=effective_chip,
+            )
+        except HwccError as e:
+            console.print(f"  [red]Error processing {file_path.name}:[/red] {e}")
+            logger.error("Failed to process %s: %s", file_path, e)
+            continue
+
+        # Update manifest with the already-computed hash (avoid double-hashing)
+        entry = DocumentEntry(
+            id=doc_id,
+            path=str(file_path),
+            doc_type=effective_doc_type,
+            hash=file_hash,
+            added=datetime.now(UTC).isoformat(),
+            chunks=chunk_count,
+            chip=effective_chip,
+        )
+        manifest.add_document(entry)
+        save_manifest(manifest, pm.manifest_path)
+
+        console.print(f"  [green]Added {file_path.name}[/green] ({chunk_count} chunks)")
+        added_count += 1
+        total_chunks += chunk_count
+
+    # Summary
+    if added_count > 0:
+        console.print(
+            f"\n[green]Added {added_count} document(s)[/green] ({total_chunks} chunks total)"
+        )
+    elif skipped_count > 0:
+        console.print("\n[dim]No new documents to add.[/dim]")
 
 
 @app.command()

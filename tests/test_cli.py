@@ -64,12 +64,6 @@ class TestStatus:
 
 
 class TestStubCommands:
-    def test_add_not_implemented(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.chdir(tmp_path)
-        result = runner.invoke(app, ["add", "foo.pdf"])
-        assert result.exit_code == 0
-        assert "not yet implemented" in result.output
-
     def test_compile_not_implemented(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(app, ["compile"])

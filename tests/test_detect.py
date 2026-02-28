@@ -8,6 +8,8 @@ from pathlib import Path
 import pytest
 
 from hwcc.exceptions import ParseError
+from hwcc.ingest import get_parser
+from hwcc.ingest.base import BaseParser
 from hwcc.ingest.detect import (
     DocType,
     FileFormat,
@@ -16,6 +18,10 @@ from hwcc.ingest.detect import (
     detect_file_type,
     get_supported_extensions,
 )
+from hwcc.ingest.markdown import MarkdownParser
+from hwcc.ingest.pdf import PdfParser
+from hwcc.ingest.svd import SvdParser
+from hwcc.ingest.text import TextParser
 
 
 class TestFileFormatEnum:
@@ -312,3 +318,35 @@ class TestGetSupportedExtensions:
         for ext in exts:
             assert ext == ext.lower()
             assert ext.startswith(".")
+
+
+class TestGetParser:
+    """get_parser maps parser_name strings to parser instances."""
+
+    def test_pdf_parser(self) -> None:
+        parser = get_parser("pdf")
+        assert isinstance(parser, PdfParser)
+        assert isinstance(parser, BaseParser)
+
+    def test_svd_parser(self) -> None:
+        parser = get_parser("svd")
+        assert isinstance(parser, SvdParser)
+        assert isinstance(parser, BaseParser)
+
+    def test_markdown_parser(self) -> None:
+        parser = get_parser("markdown")
+        assert isinstance(parser, MarkdownParser)
+        assert isinstance(parser, BaseParser)
+
+    def test_text_parser(self) -> None:
+        parser = get_parser("text")
+        assert isinstance(parser, TextParser)
+        assert isinstance(parser, BaseParser)
+
+    def test_unsupported_raises_parse_error(self) -> None:
+        with pytest.raises(ParseError, match="No parser for format"):
+            get_parser("unknown")
+
+    def test_empty_string_raises_parse_error(self) -> None:
+        with pytest.raises(ParseError, match="No parser for format"):
+            get_parser("")
