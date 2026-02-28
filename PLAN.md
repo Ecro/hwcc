@@ -120,7 +120,7 @@ hwcc status
   - Remove headers/footers/page numbers
   - Output: clean markdown with metadata
 
-- [ ] **1.4** Markdown / text passthrough
+- [x] **1.4** Markdown / text passthrough
   - Normalize whitespace and encoding
   - Detect and preserve code blocks
   - Extract front-matter metadata if present
