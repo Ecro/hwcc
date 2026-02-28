@@ -190,7 +190,7 @@ hwcc status
 
 ### Tasks
 
-- [ ] **2.1** Hot context generator
+- [x] **2.1** Hot context generator
   - Compile `.rag/context/hot.md` from all indexed documents
   - Include: chip summary, peripheral list, errata highlights, conventions
   - Respect `hot_context_max_lines` config (default 120)

@@ -16,6 +16,7 @@ from hwcc.store.base import BaseStore
 from hwcc.types import Chunk, ChunkMetadata, EmbeddedChunk, SearchResult
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
 
 __all__ = ["ChromaStore"]
@@ -172,20 +173,12 @@ class ChromaStore(BaseStore):
 
         search_results: list[SearchResult] = []
         for chunk_id, doc, meta, dist in zip(ids, documents, metadatas, distances, strict=True):
-            chunk_meta = ChunkMetadata(
-                doc_id=str(meta.get("doc_id", "")) if meta else "",
-                doc_type=str(meta.get("doc_type", "")) if meta else "",
-                chip=str(meta.get("chip", "")) if meta else "",
-                section_path=str(meta.get("section_path", "")) if meta else "",
-                page=int(meta["page"]) if meta and "page" in meta else 0,  # type: ignore[arg-type]
-                chunk_level=str(meta.get("chunk_level", "detail")) if meta else "detail",
-                peripheral=str(meta.get("peripheral", "")) if meta else "",
-                content_type=str(meta.get("content_type", "")) if meta else "",
-            )
+            chunk_meta = self._meta_from_dict(meta)
+            token_val = meta.get("token_count", 0) if meta else 0
             chunk = Chunk(
                 chunk_id=chunk_id,
                 content=doc or "",
-                token_count=int(meta["token_count"]) if meta and "token_count" in meta else 0,  # type: ignore[arg-type]
+                token_count=int(token_val) if token_val is not None else 0,  # type: ignore[arg-type]
                 metadata=chunk_meta,
             )
             # Convert distance to similarity score (higher = more similar)
@@ -223,9 +216,63 @@ class ChromaStore(BaseStore):
         logger.info("Deleted %d chunks for doc_id=%s", count, doc_id)
         return count
 
+    def get_chunk_metadata(
+        self,
+        where: dict[str, str] | None = None,
+    ) -> list[ChunkMetadata]:
+        """Get metadata for all chunks matching filters (no embedding needed).
+
+        Args:
+            where: Optional metadata filters (e.g., ``{"doc_type": "svd"}``).
+
+        Returns:
+            List of ChunkMetadata for matching chunks.
+
+        Raises:
+            StoreError: If the query fails.
+        """
+        try:
+            # Returns all matching chunks. For very large stores (>100k chunks),
+            # consider adding pagination or a dedicated peripheral query.
+            results = self._collection.get(
+                where=where,  # type: ignore[arg-type]
+                include=["metadatas"],
+            )
+        except Exception as e:
+            raise StoreError(f"Failed to get chunk metadata: {e}") from e
+
+        raw_metas = results.get("metadatas")
+        if not raw_metas:
+            return []
+
+        metadata_list: list[ChunkMetadata] = []
+        for meta in raw_metas:
+            if meta is None:
+                continue
+            metadata_list.append(self._meta_from_dict(meta))
+
+        return metadata_list
+
     def count(self) -> int:
         """Return the total number of chunks in the store."""
         try:
             return self._collection.count()
         except Exception as e:
             raise StoreError(f"Failed to count chunks: {e}") from e
+
+    @staticmethod
+    def _meta_from_dict(meta: Mapping[str, object] | None) -> ChunkMetadata:
+        """Reconstruct a ChunkMetadata from a ChromaDB metadata dict."""
+        if not meta:
+            return ChunkMetadata(doc_id="")
+        page_val = meta.get("page", 0)
+        return ChunkMetadata(
+            doc_id=str(meta.get("doc_id", "")),
+            doc_type=str(meta.get("doc_type", "")),
+            chip=str(meta.get("chip", "")),
+            section_path=str(meta.get("section_path", "")),
+            page=int(page_val) if page_val is not None else 0,  # type: ignore[call-overload]
+            chunk_level=str(meta.get("chunk_level", "detail")),
+            peripheral=str(meta.get("peripheral", "")),
+            content_type=str(meta.get("content_type", "")),
+        )

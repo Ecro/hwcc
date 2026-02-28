@@ -346,6 +346,113 @@ class TestChromaStorePersistence:
 # --- Error Handling Tests ---
 
 
+# --- get_chunk_metadata Tests ---
+
+
+class TestChromaStoreGetChunkMetadata:
+    def test_empty_store_returns_empty_list(self, tmp_path: Path):
+        store = _make_store(tmp_path)
+        result = store.get_chunk_metadata()
+        assert result == []
+
+    def test_returns_all_metadata_no_filter(self, tmp_path: Path):
+        store = _make_store(tmp_path)
+        store.add(
+            [
+                _make_embedded_chunk(chunk_id="c1", doc_id="doc1", peripheral="SPI1"),
+                _make_embedded_chunk(chunk_id="c2", doc_id="doc1", peripheral="I2C1"),
+            ],
+            "doc1",
+        )
+        result = store.get_chunk_metadata()
+        assert len(result) == 2
+        assert all(isinstance(m, ChunkMetadata) for m in result)
+
+    def test_filters_by_doc_type(self, tmp_path: Path):
+        store = _make_store(tmp_path)
+        store.add(
+            [_make_embedded_chunk(chunk_id="c1", doc_type="svd", peripheral="SPI1")],
+            "doc1",
+        )
+        store.add(
+            [_make_embedded_chunk(chunk_id="c2", doc_type="datasheet", peripheral="")],
+            "doc2",
+        )
+        result = store.get_chunk_metadata(where={"doc_type": "svd"})
+        assert len(result) == 1
+        assert result[0].doc_type == "svd"
+
+    def test_filters_by_chip(self, tmp_path: Path):
+        store = _make_store(tmp_path)
+        store.add(
+            [_make_embedded_chunk(chunk_id="c1", chip="STM32F407")],
+            "doc1",
+        )
+        store.add(
+            [_make_embedded_chunk(chunk_id="c2", chip="NRF52840")],
+            "doc2",
+        )
+        result = store.get_chunk_metadata(where={"chip": "STM32F407"})
+        assert len(result) == 1
+        assert result[0].chip == "STM32F407"
+
+    def test_filters_by_peripheral(self, tmp_path: Path):
+        store = _make_store(tmp_path)
+        store.add(
+            [
+                _make_embedded_chunk(chunk_id="c1", peripheral="SPI1"),
+                _make_embedded_chunk(chunk_id="c2", peripheral="I2C1"),
+                _make_embedded_chunk(chunk_id="c3", peripheral="SPI1"),
+            ],
+            "doc1",
+        )
+        result = store.get_chunk_metadata(where={"peripheral": "SPI1"})
+        assert len(result) == 2
+        assert all(m.peripheral == "SPI1" for m in result)
+
+    def test_metadata_fields_round_trip(self, tmp_path: Path):
+        store = _make_store(tmp_path)
+        store.add(
+            [
+                _make_embedded_chunk(
+                    chunk_id="c1",
+                    doc_id="svd_doc",
+                    doc_type="svd",
+                    chip="STM32F407",
+                    section_path="SPI/Registers",
+                    page=10,
+                    chunk_level="detail",
+                    peripheral="SPI1",
+                    content_type="register_map",
+                )
+            ],
+            "svd_doc",
+        )
+        result = store.get_chunk_metadata()
+        assert len(result) == 1
+        meta = result[0]
+        assert meta.doc_id == "svd_doc"
+        assert meta.doc_type == "svd"
+        assert meta.chip == "STM32F407"
+        assert meta.section_path == "SPI/Registers"
+        assert meta.page == 10
+        assert meta.chunk_level == "detail"
+        assert meta.peripheral == "SPI1"
+        assert meta.content_type == "register_map"
+
+    def test_no_filter_matches_returns_empty(self, tmp_path: Path):
+        store = _make_store(tmp_path)
+        store.add(
+            [_make_embedded_chunk(chunk_id="c1", chip="STM32F407")],
+            "doc1",
+        )
+        result = store.get_chunk_metadata(where={"chip": "NRF52840"})
+        assert result == []
+
+
+# --- Error Handling Tests ---
+
+
 class TestChromaStoreErrors:
     def test_add_wraps_chromadb_errors(self, tmp_path: Path):
         """Mismatched embedding dimensions should raise StoreError."""

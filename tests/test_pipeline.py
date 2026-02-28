@@ -89,6 +89,12 @@ class MockStore(BaseStore):
             return count
         return 0
 
+    def get_chunk_metadata(
+        self,
+        where: dict[str, str] | None = None,
+    ) -> list[ChunkMetadata]:
+        return []
+
     def count(self) -> int:
         return sum(len(v) for v in self.stored.values())
 
@@ -168,7 +174,6 @@ class TestPipelineProcess:
 
         with pytest.raises(PipelineError, match="parse failed"):
             pipeline.process(doc_path, doc_id="test_doc")
-
 
     def test_process_applies_doc_type_and_chip_overrides(self, tmp_path: Path):
         """Pipeline.process() should forward doc_type/chip to ParseResult before chunking."""

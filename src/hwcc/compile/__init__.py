@@ -8,6 +8,7 @@ from hwcc.compile.context import (
     PeripheralSummary,
     TargetInfo,
 )
+from hwcc.compile.hot_context import HotContextCompiler
 from hwcc.compile.templates import TARGET_REGISTRY, TemplateEngine
 
 __all__ = [
@@ -16,6 +17,7 @@ __all__ = [
     "CompileContext",
     "DocumentSummary",
     "ErrataSummary",
+    "HotContextCompiler",
     "PeripheralSummary",
     "TargetInfo",
     "TemplateEngine",
