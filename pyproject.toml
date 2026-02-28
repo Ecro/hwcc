@@ -31,6 +31,8 @@ dependencies = [
     "tomli>=2.0; python_version < '3.12'",
     "tomli-w>=1.0",
     "cmsis-svd>=0.6",
+    "pymupdf>=1.24",
+    "pdfplumber>=0.11",
 ]
 
 [project.optional-dependencies]
@@ -81,6 +83,14 @@ mypy_path = "src"
 [[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+module = ["pymupdf", "pymupdf.*", "pdfplumber", "pdfplumber.*", "fitz", "fitz.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "hwcc.ingest.pdf"
+disallow_untyped_calls = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

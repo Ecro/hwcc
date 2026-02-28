@@ -113,7 +113,7 @@ hwcc status
   - This is 100% DETERMINISTIC — no LLM needed, highest reliability
   - **Why first**: RespCode benchmarks prove 3/4 LLMs get register addresses wrong. SVD context fixes this at the source.
 
-- [ ] **1.3** `[P0]` PDF parser
+- [x] **1.3** `[P0]` PDF parser
   - Extract text with PyMuPDF (fitz)
   - Extract tables with pdfplumber → markdown table format
   - Preserve section headings hierarchy
