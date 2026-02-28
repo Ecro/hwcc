@@ -99,7 +99,7 @@ hwcc status
 
 ### Tasks
 
-- [ ] **1.1** File type detection
+- [x] **1.1** File type detection
   - Detect by extension + magic bytes
   - Map to parser: PDF, markdown, text, SVD, DTS, C/H headers
   - Auto-classify document type (datasheet, reference manual, errata, etc.)
