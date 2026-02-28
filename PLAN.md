@@ -157,7 +157,7 @@ hwcc status
   - Support `--type` and `--chip` hints (**multi-vendor** from day one — Gap G5)
   - Support `--watch` for file watching (watchdog library)
 
-- [ ] **1.9** Implement `rag remove`
+- [x] **1.9** Implement `rag remove`
   - Remove document from ChromaDB by doc_id
   - Remove from manifest
   - Remove processed markdown file

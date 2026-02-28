@@ -280,3 +280,91 @@ class TestAddPipelineError:
         manifest = load_manifest(initialized_project / RAG_DIR / MANIFEST_FILE)
         assert len(manifest.documents) == 1
         assert manifest.documents[0].id == "file2_txt"
+
+
+# --- Remove Command Tests ---
+
+
+class TestRemoveNotInitialized:
+    def test_not_initialized_prints_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(app, ["remove", "some_doc"])
+        assert result.exit_code == 1
+        assert "init" in result.output.lower()
+
+
+class TestRemoveNonexistent:
+    @pytest.mark.usefixtures("_mock_pipeline")
+    def test_nonexistent_doc_prints_error(
+        self, initialized_project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(initialized_project)
+        result = runner.invoke(app, ["remove", "nonexistent_doc"])
+        assert result.exit_code == 1
+        assert "not found" in result.output.lower()
+
+
+class TestRemoveSuccess:
+    @pytest.mark.usefixtures("_mock_pipeline")
+    def test_remove_by_doc_id(
+        self,
+        initialized_project: Path,
+        txt_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.chdir(initialized_project)
+        # First add a document
+        runner.invoke(app, ["add", str(txt_file)])
+        manifest = load_manifest(initialized_project / RAG_DIR / MANIFEST_FILE)
+        assert len(manifest.documents) == 1
+
+        # Now remove it by doc_id
+        result = runner.invoke(app, ["remove", "notes_txt"])
+        assert result.exit_code == 0
+        assert "removed" in result.output.lower()
+
+        # Manifest should be empty
+        manifest = load_manifest(initialized_project / RAG_DIR / MANIFEST_FILE)
+        assert len(manifest.documents) == 0
+
+    @pytest.mark.usefixtures("_mock_pipeline")
+    def test_remove_by_file_path(
+        self,
+        initialized_project: Path,
+        txt_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.chdir(initialized_project)
+        runner.invoke(app, ["add", str(txt_file)])
+
+        # Remove by file path instead of doc_id
+        result = runner.invoke(app, ["remove", str(txt_file)])
+        assert result.exit_code == 0
+        assert "removed" in result.output.lower()
+
+        manifest = load_manifest(initialized_project / RAG_DIR / MANIFEST_FILE)
+        assert len(manifest.documents) == 0
+
+    @pytest.mark.usefixtures("_mock_pipeline")
+    def test_remove_decreases_document_count(
+        self,
+        initialized_project: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.chdir(initialized_project)
+        f1 = initialized_project / "file1.txt"
+        f2 = initialized_project / "file2.txt"
+        f1.write_text("Content one", encoding="utf-8")
+        f2.write_text("Content two", encoding="utf-8")
+        runner.invoke(app, ["add", str(f1), str(f2)])
+
+        manifest = load_manifest(initialized_project / RAG_DIR / MANIFEST_FILE)
+        assert len(manifest.documents) == 2
+
+        # Remove one
+        runner.invoke(app, ["remove", "file1_txt"])
+        manifest = load_manifest(initialized_project / RAG_DIR / MANIFEST_FILE)
+        assert len(manifest.documents) == 1
+        assert manifest.documents[0].id == "file2_txt"

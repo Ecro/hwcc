@@ -265,7 +265,42 @@ def remove(
     doc_id: Annotated[str, typer.Argument(help="Document ID or path to remove")],
 ) -> None:
     """Remove a document from the index."""
-    _not_implemented("remove")
+    pm = ProjectManager()
+    if not pm.is_initialized:
+        console.print("[yellow]No hwcc project found.[/yellow] Run [bold]hwcc init[/bold] first.")
+        raise typer.Exit(code=1)
+
+    config = load_config(pm.config_path)
+    manifest = load_manifest(pm.manifest_path)
+
+    # Resolve doc_id: try direct lookup first, then try as file path
+    entry = manifest.get_document(doc_id)
+    if entry is None:
+        resolved_id = make_doc_id(Path(doc_id))
+        entry = manifest.get_document(resolved_id)
+        if entry is not None:
+            doc_id = resolved_id
+
+    if entry is None:
+        console.print(f"[red]Document not found:[/red] {doc_id}")
+        raise typer.Exit(code=1)
+
+    # Delete chunks from store
+    try:
+        store = ChromaStore(
+            persist_path=pm.rag_dir / "index",
+            collection_name=config.store.collection_name,
+        )
+        deleted_chunks = store.delete(doc_id)
+    except HwccError as e:
+        console.print(f"[red]Failed to delete chunks:[/red] {e}")
+        raise typer.Exit(code=1) from e
+
+    # Remove from manifest
+    manifest.remove_document(doc_id)
+    save_manifest(manifest, pm.manifest_path)
+
+    console.print(f"[green]Removed {doc_id}[/green] ({deleted_chunks} chunks deleted)")
 
 
 @app.command(name="compile")
