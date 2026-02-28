@@ -197,7 +197,7 @@ hwcc status
   - Prioritize: errata > chip specs > peripheral list > conventions
   - **Multi-chip**: list all chips in project with key specs
 
-- [ ] **2.2** `[P1/P2]` Peripheral context generator
+- [x] **2.2** `[P1]` Peripheral context generator
   - Compile `.rag/context/peripherals/<name>.md` per peripheral
   - Include: register map, clock config, DMA mapping, pin mapping
   - Sources: SVD data + datasheet chunks + ref manual chunks

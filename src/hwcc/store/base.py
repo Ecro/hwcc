@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from hwcc.types import ChunkMetadata, EmbeddedChunk, SearchResult
+    from hwcc.types import Chunk, ChunkMetadata, EmbeddedChunk, SearchResult
 
 __all__ = ["BaseStore"]
 
@@ -86,6 +86,27 @@ class BaseStore(ABC):
 
         Returns:
             List of ChunkMetadata for matching chunks.
+
+        Raises:
+            StoreError: If the query fails.
+        """
+
+    @abstractmethod
+    def get_chunks(
+        self,
+        where: dict[str, str] | None = None,
+    ) -> list[Chunk]:
+        """Get chunks with content matching filters (no embedding needed).
+
+        Unlike ``search()``, returns chunks by metadata filter without
+        requiring a query embedding. Useful for the compile stage to
+        retrieve document content by type, peripheral, etc.
+
+        Args:
+            where: Optional metadata filters (e.g., ``{"doc_type": "svd"}``).
+
+        Returns:
+            List of Chunk objects with content and metadata.
 
         Raises:
             StoreError: If the query fails.

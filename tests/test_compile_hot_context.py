@@ -17,7 +17,7 @@ from hwcc.config import (
 )
 from hwcc.manifest import DocumentEntry, Manifest, save_manifest
 from hwcc.store.base import BaseStore
-from hwcc.types import ChunkMetadata, EmbeddedChunk, SearchResult
+from hwcc.types import Chunk, ChunkMetadata, EmbeddedChunk, SearchResult
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -59,6 +59,12 @@ class FakeStore(BaseStore):
             for m in self._metadata
             if all(getattr(m, key, None) == v for key, v in where.items())
         ]
+
+    def get_chunks(
+        self,
+        where: dict[str, str] | None = None,
+    ) -> list[Chunk]:
+        return []
 
     def count(self) -> int:
         return len(self._metadata)

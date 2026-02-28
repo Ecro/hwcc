@@ -95,6 +95,12 @@ class MockStore(BaseStore):
     ) -> list[ChunkMetadata]:
         return []
 
+    def get_chunks(
+        self,
+        where: dict[str, str] | None = None,
+    ) -> list[Chunk]:
+        return []
+
     def count(self) -> int:
         return sum(len(v) for v in self.stored.values())
 

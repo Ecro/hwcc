@@ -253,6 +253,53 @@ class ChromaStore(BaseStore):
 
         return metadata_list
 
+    def get_chunks(
+        self,
+        where: dict[str, str] | None = None,
+    ) -> list[Chunk]:
+        """Get chunks with content matching filters (no embedding needed).
+
+        Args:
+            where: Optional metadata filters (e.g., ``{"doc_type": "svd"}``).
+
+        Returns:
+            List of Chunk objects with content and metadata.
+
+        Raises:
+            StoreError: If the query fails.
+        """
+        try:
+            results = self._collection.get(
+                where=where,  # type: ignore[arg-type]
+                include=["documents", "metadatas"],
+            )
+        except Exception as e:
+            raise StoreError(f"Failed to get chunks: {e}") from e
+
+        ids = results.get("ids", [])
+        documents = results.get("documents")
+        metadatas = results.get("metadatas")
+
+        chunks: list[Chunk] = []
+        for chunk_id, doc, meta in zip(
+            ids,
+            documents or [],
+            metadatas or [],
+            strict=True,
+        ):
+            chunk_meta = self._meta_from_dict(meta)
+            token_val = meta.get("token_count", 0) if meta else 0
+            chunks.append(
+                Chunk(
+                    chunk_id=chunk_id,
+                    content=doc or "",
+                    token_count=int(token_val) if token_val is not None else 0,  # type: ignore[arg-type]
+                    metadata=chunk_meta,
+                )
+            )
+
+        return chunks
+
     def count(self) -> int:
         """Return the total number of chunks in the store."""
         try:

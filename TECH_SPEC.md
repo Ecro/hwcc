@@ -162,7 +162,7 @@ Each pipeline stage has an abstract base class in `<package>/base.py`:
 | `BaseParser` | `hwcc.ingest.base` | `parse(path, config) → ParseResult`, `supported_extensions() → frozenset[str]`, `can_parse(path) → bool` |
 | `BaseChunker` | `hwcc.chunk.base` | `chunk(result, config) → list[Chunk]` |
 | `BaseEmbedder` | `hwcc.embed.base` | `embed_chunks(chunks) → list[EmbeddedChunk]`, `embed_query(text) → list[float]`, `dimension → int` |
-| `BaseStore` | `hwcc.store.base` | `add(chunks, doc_id) → int`, `search(query_embedding, k, where) → list[SearchResult]`, `delete(doc_id) → int`, `count() → int` |
+| `BaseStore` | `hwcc.store.base` | `add(chunks, doc_id) → int`, `search(query_embedding, k, where) → list[SearchResult]`, `delete(doc_id) → int`, `get_chunk_metadata(where) → list[ChunkMetadata]`, `get_chunks(where) → list[Chunk]`, `count() → int` |
 | `BaseCompiler` | `hwcc.compile.base` | `compile(store, config) → list[Path]` |
 
 #### Provider Registry
