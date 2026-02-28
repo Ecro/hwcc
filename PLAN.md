@@ -210,7 +210,7 @@ hwcc status
   - User-customizable: copy template to `.rag/templates/` to override
   - Well-documented template format = de facto standard for hardware context
 
-- [ ] **2.4** `[P1]` Output file generators — **tool-agnostic differentiator (Gap G3)**
+- [x] **2.4** `[P1]` Output file generators — **tool-agnostic differentiator (Gap G3)**
   - `CLAUDE.md` generator: inject hardware section with markers
   - `AGENTS.md` generator: Codex-compatible format
   - `.gemini/GEMINI.md` generator
