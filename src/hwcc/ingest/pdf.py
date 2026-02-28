@@ -65,7 +65,7 @@ class PdfParser(BaseParser):
             raise ParseError(msg) from e
 
         if not path.exists():
-            msg = f"PDF file not found: {path}"
+            msg = f"PDF file not found: {path.name}"
             raise ParseError(msg)
 
         _check_pdf_safety(path, self.MAX_FILE_SIZE)
@@ -74,7 +74,7 @@ class PdfParser(BaseParser):
 
         try:
             mu_doc = pymupdf.open(str(path))
-        except Exception as e:
+        except (RuntimeError, ValueError, OSError) as e:
             logger.debug("PDF open failure (%s): %s", type(e).__name__, e, exc_info=True)
             msg = f"Failed to open PDF file {path.name}: {e}"
             raise ParseError(msg) from e
@@ -170,7 +170,8 @@ def _check_pdf_safety(path: Path, max_size: int) -> None:
 
     # Check PDF magic header
     try:
-        header = path.read_bytes()[:5]
+        with path.open("rb") as f:
+            header = f.read(5)
     except OSError as e:
         msg = f"Cannot read PDF file {path.name}: {e}"
         raise ParseError(msg) from e

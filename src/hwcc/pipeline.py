@@ -6,6 +6,7 @@ Composes parser → chunker → embedder → store via constructor injection.
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from hwcc.exceptions import PipelineError
@@ -81,6 +82,15 @@ class Pipeline:
             logger.info("Processing %s (doc_id=%s)", path, doc_id)
 
             result = self.parser.parse(path, self.config)
+
+            # Apply caller-supplied overrides (CLI --type / --chip flags)
+            if doc_type or chip:
+                result = replace(
+                    result,
+                    doc_type=doc_type or result.doc_type,
+                    chip=chip or result.chip,
+                )
+
             logger.info("Parsed %s: %d chars", path.name, len(result.content))
 
             chunks = self.chunker.chunk(result, self.config)

@@ -282,6 +282,29 @@ class TestAddPipelineError:
         assert manifest.documents[0].id == "file2_txt"
 
 
+# --- Relative Path Storage ---
+
+
+class TestAddRelativePath:
+    @pytest.mark.usefixtures("_mock_pipeline")
+    def test_manifest_stores_relative_path(
+        self,
+        initialized_project: Path,
+        txt_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.chdir(initialized_project)
+        result = runner.invoke(app, ["add", str(txt_file)])
+        assert result.exit_code == 0
+
+        manifest = load_manifest(initialized_project / RAG_DIR / MANIFEST_FILE)
+        entry = manifest.get_document("notes_txt")
+        assert entry is not None
+        # Path should be relative, not absolute
+        assert not entry.path.startswith("/")
+        assert entry.path == "notes.txt"
+
+
 # --- Remove Command Tests ---
 
 

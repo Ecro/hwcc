@@ -42,7 +42,7 @@ class MockChunker(BaseChunker):
 
     def chunk(self, result: ParseResult, config: HwccConfig) -> list[Chunk]:
         self.chunk_calls.append(result.doc_id)
-        meta = ChunkMetadata(doc_id=result.doc_id, doc_type=result.doc_type)
+        meta = ChunkMetadata(doc_id=result.doc_id, doc_type=result.doc_type, chip=result.chip)
         return [
             Chunk(chunk_id="c1", content="chunk 1", token_count=10, metadata=meta),
             Chunk(chunk_id="c2", content="chunk 2", token_count=15, metadata=meta),
@@ -168,6 +168,21 @@ class TestPipelineProcess:
 
         with pytest.raises(PipelineError, match="parse failed"):
             pipeline.process(doc_path, doc_id="test_doc")
+
+
+    def test_process_applies_doc_type_and_chip_overrides(self, tmp_path: Path):
+        """Pipeline.process() should forward doc_type/chip to ParseResult before chunking."""
+        pipeline, _, chunker, _, store = _make_pipeline()
+        doc_path = tmp_path / "test.pdf"
+        doc_path.write_text("dummy", encoding="utf-8")
+
+        pipeline.process(doc_path, doc_id="test_doc", doc_type="errata", chip="NRF52840")
+
+        # Verify the chunks in the store have the overridden metadata
+        stored_chunks = store.stored["test_doc"]
+        for ec in stored_chunks:
+            assert ec.chunk.metadata.doc_type == "errata"
+            assert ec.chunk.metadata.chip == "NRF52840"
 
 
 class TestPipelineRemove:

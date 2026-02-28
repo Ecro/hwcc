@@ -239,15 +239,30 @@ def _hard_split(text: str, max_tokens: int) -> list[str]:
     return result
 
 
-def _add_overlap(chunks: list[str], overlap_tokens: int) -> list[str]:
-    """Add overlap from the end of each chunk to the start of the next."""
+def _add_overlap(
+    chunks: list[str],
+    overlap_tokens: int,
+    atomic_indices: set[int] | None = None,
+) -> list[str]:
+    """Add overlap from the end of each chunk to the start of the next.
+
+    Atomic blocks (tables, code fences) are skipped — they should not
+    receive overlap prefixes since they are already self-contained and
+    may already be at or over the max_tokens budget.
+    """
     if overlap_tokens <= 0 or len(chunks) <= 1:
         return chunks
 
+    atomic = atomic_indices or set()
     enc = _get_encoding()
     result = [chunks[0]]
 
     for i in range(1, len(chunks)):
+        if i in atomic:
+            # Don't prepend overlap to atomic blocks
+            result.append(chunks[i])
+            continue
+
         prev_tokens = enc.encode(chunks[i - 1])
         overlap_text = ""
         if len(prev_tokens) > overlap_tokens:
@@ -321,6 +336,7 @@ class MarkdownChunker(BaseChunker):
 
         # Step 2: Split non-atomic segments, pass through atomic ones
         raw_chunks: list[str] = []
+        atomic_indices: set[int] = set()
         for segment_text, is_atomic in segments:
             text = segment_text.strip()
             if not text:
@@ -328,6 +344,7 @@ class MarkdownChunker(BaseChunker):
 
             if is_atomic:
                 # Atomic blocks go through as-is (even if oversized)
+                atomic_indices.add(len(raw_chunks))
                 raw_chunks.append(text)
             else:
                 # Recursively split non-atomic text (budget accounts for overlap)
@@ -335,7 +352,7 @@ class MarkdownChunker(BaseChunker):
                 raw_chunks.extend(splits)
 
         # Step 3: Add overlap between consecutive non-atomic chunks
-        raw_chunks = _add_overlap(raw_chunks, overlap_tokens)
+        raw_chunks = _add_overlap(raw_chunks, overlap_tokens, atomic_indices)
 
         # Step 4: Filter out chunks below min_tokens (merge with neighbors)
         raw_chunks = self._merge_small_chunks(raw_chunks, min_tokens, max_tokens)

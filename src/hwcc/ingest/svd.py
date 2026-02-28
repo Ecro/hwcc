@@ -49,6 +49,8 @@ class SvdParser(BaseParser):
     This parser is 100% deterministic — no LLM dependency.
     """
 
+    MAX_FILE_SIZE: int = 100 * 1024 * 1024  # 100 MB
+
     def parse(self, path: Path, config: HwccConfig) -> ParseResult:
         """Parse an SVD file into a ParseResult with markdown register maps.
 
@@ -69,7 +71,15 @@ class SvdParser(BaseParser):
             raise ParseError(msg) from e
 
         if not path.exists():
-            msg = f"SVD file not found: {path}"
+            msg = f"SVD file not found: {path.name}"
+            raise ParseError(msg)
+
+        file_size = path.stat().st_size
+        if file_size > self.MAX_FILE_SIZE:
+            msg = (
+                f"SVD file {path.name} ({file_size} bytes) "
+                f"exceeds maximum size ({self.MAX_FILE_SIZE} bytes)"
+            )
             raise ParseError(msg)
 
         # XXE mitigation: reject SVD files with DTD declarations before parsing.
@@ -250,17 +260,25 @@ def _check_xml_safety(path: Path) -> None:
     external entity resolution by default. Valid CMSIS-SVD files never
     contain DTD declarations, so rejecting them is safe.
 
+    DTD declarations always appear before the root element, so reading
+    a prefix is sufficient and avoids loading huge files into memory.
+
     Raises:
         ParseError: If the file contains unsafe XML constructs.
     """
+    # Note: A crafted file with >8KB of comments before the DTD could bypass
+    # this check. Full protection requires configuring lxml to disable
+    # external entity resolution (tracked as a future improvement).
+    _SAFETY_PROBE_SIZE = 8192
     try:
-        content = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as e:
+        with path.open("r", encoding="utf-8", errors="ignore") as f:
+            head = f.read(_SAFETY_PROBE_SIZE)
+    except OSError as e:
         msg = f"Cannot read SVD file {path.name}: {e}"
         raise ParseError(msg) from e
 
     for pattern in _UNSAFE_XML_PATTERNS:
-        if pattern in content:
+        if pattern in head:
             msg = f"SVD file contains potentially unsafe XML ({pattern}): {path.name}"
             raise ParseError(msg)
 

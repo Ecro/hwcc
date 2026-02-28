@@ -134,7 +134,27 @@ class ChromaStore(BaseStore):
                 include=["documents", "metadatas", "distances"],
             )
         except Exception as e:
-            raise StoreError(f"Search failed: {e}") from e
+            err_name = type(e).__name__
+            if where is not None and "NotEnough" in err_name:
+                # When k exceeds the number of documents matching the filter,
+                # some ChromaDB versions raise NotEnoughElements. Fall back
+                # to counting filtered matches, then re-query with correct limit.
+                logger.debug("Filtered search (k=%d) failed, retrying: %s", actual_k, e)
+                try:
+                    matching = self._collection.get(where=where, include=[])  # type: ignore[arg-type]
+                    match_count = len(matching["ids"])
+                    if match_count == 0:
+                        return []
+                    results = self._collection.query(
+                        query_embeddings=[query_embedding],  # type: ignore[arg-type]
+                        n_results=min(actual_k, match_count),
+                        where=where,  # type: ignore[arg-type]
+                        include=["documents", "metadatas", "distances"],
+                    )
+                except Exception as retry_err:
+                    raise StoreError(f"Search failed: {retry_err}") from retry_err
+            else:
+                raise StoreError(f"Search failed: {e}") from e
 
         # ChromaDB returns batched results — we query with one embedding
         raw_ids = results.get("ids")

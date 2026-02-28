@@ -203,6 +203,34 @@ class TestOverlap:
         for chunk in chunks:
             assert chunk.token_count <= config.chunk.max_tokens
 
+    def test_overlap_not_added_to_atomic_blocks(self, chunker):
+        """Atomic blocks (tables, code) should not receive overlap prefix."""
+        config = default_config()
+        config.chunk.max_tokens = 100
+        config.chunk.overlap_tokens = 20
+        config.chunk.min_tokens = 0
+
+        # Prose followed by a code block — the code block should not get overlap
+        content = (
+            "Some introductory text with enough words to fill a chunk. " * 5
+            + "\n\n"
+            + "```c\n"
+            + "void init_gpio(void) {\n"
+            + "    GPIOA->MODER |= (1 << 10);\n"
+            + "}\n"
+            + "```\n"
+        )
+
+        result = _make_result(content)
+        chunks = chunker.chunk(result, config)
+
+        # Find the code chunk
+        code_chunks = [c for c in chunks if "init_gpio" in c.content]
+        assert len(code_chunks) >= 1
+        # Code chunk should start with the code fence, not overlap text
+        for cc in code_chunks:
+            assert cc.content.startswith("```")
+
 
 # ---------------------------------------------------------------------------
 # Table preservation

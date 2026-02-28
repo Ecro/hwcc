@@ -218,6 +218,27 @@ class TestChromaStoreSearch:
         assert results[0].score > 0
         assert results[0].distance >= 0
 
+    def test_search_with_filter_k_exceeds_matches(self, tmp_path: Path):
+        """k > matching count should return all matches, not raise error."""
+        store = _make_store(tmp_path)
+        # Add 8 chunks: 3 STM32, 5 NRF52
+        for i in range(3):
+            store.add(
+                [_make_embedded_chunk(chunk_id=f"stm{i}", chip="STM32F407")],
+                "stm_doc",
+            )
+        for i in range(5):
+            store.add(
+                [_make_embedded_chunk(chunk_id=f"nrf{i}", chip="NRF52840")],
+                "nrf_doc",
+            )
+        assert store.count() == 8
+
+        # k=10 > 3 matching STM32 chunks; should get 3 results, not an error
+        results = store.search([0.1, 0.2, 0.3], k=10, where={"chip": "STM32F407"})
+        assert len(results) == 3
+        assert all(r.chunk.metadata.chip == "STM32F407" for r in results)
+
     def test_search_reconstructs_chunk_metadata(self, tmp_path: Path):
         """SearchResult should contain a fully-formed Chunk with metadata."""
         store = _make_store(tmp_path)

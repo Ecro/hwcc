@@ -257,6 +257,13 @@ class TestErrorHandling:
         with pytest.raises(ParseError, match="unsafe XML"):
             parser.parse(entity_svd, config)
 
+    def test_oversized_file_rejected(self, parser, config, tmp_path):
+        big_svd = tmp_path / "big.svd"
+        # Write a file just over the MAX_FILE_SIZE limit
+        big_svd.write_bytes(b"x" * (parser.MAX_FILE_SIZE + 1))
+        with pytest.raises(ParseError, match="exceeds maximum size"):
+            parser.parse(big_svd, config)
+
 
 # --- supported_extensions and can_parse ---
 

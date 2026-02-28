@@ -73,7 +73,11 @@ def init(
 ) -> None:
     """Initialize a new hwcc project in the current directory."""
     pm = ProjectManager()
-    rag_dir = pm.init(chip=chip, rtos=rtos, name=name)
+    try:
+        rag_dir = pm.init(chip=chip, rtos=rtos, name=name)
+    except (HwccError, OSError) as e:
+        console.print(f"[red]Failed to initialize project:[/red] {e}")
+        raise typer.Exit(code=1) from e
 
     console.print(f"[green]Initialized hwcc project[/green] at {rag_dir}")
 
@@ -277,10 +281,16 @@ def add(
             logger.error("Failed to process %s: %s", file_path, e)
             continue
 
+        # Store relative path when file is inside the project root
+        try:
+            stored_path = str(file_path.relative_to(pm.root))
+        except ValueError:
+            stored_path = str(file_path)
+
         # Update manifest with the already-computed hash (avoid double-hashing)
         entry = DocumentEntry(
             id=doc_id,
-            path=str(file_path),
+            path=stored_path,
             doc_type=effective_doc_type,
             hash=file_hash,
             added=datetime.now(UTC).isoformat(),

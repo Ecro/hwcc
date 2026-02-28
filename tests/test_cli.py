@@ -49,6 +49,18 @@ class TestInit:
         result = runner.invoke(app, ["init"])
         assert result.exit_code == 0
 
+    def test_init_error_shows_friendly_message(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        def _fail_init(*_a: object, **_kw: object) -> None:
+            raise OSError("Permission denied")
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("hwcc.cli.ProjectManager.init", _fail_init)
+        result = runner.invoke(app, ["init"])
+        assert result.exit_code == 1
+        assert "Permission denied" in result.output
+
 
 class TestStatus:
     def test_status_uninitialized(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
