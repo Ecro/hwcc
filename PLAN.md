@@ -204,7 +204,7 @@ hwcc status
   - Cross-reference across documents
   - **`[P2]` Errata integration (Gap G4)**: cross-reference errata entries with affected registers. Inline warnings: `⚠ ERRATA ES0182 §2.1.8: SPI CRC not reliable in slave mode at frequencies > 18 MHz`
 
-- [ ] **2.3** `[P2]` Jinja2 template system — **seeds hardware llms.txt standard (Gap G6)**
+- [x] **2.3** `[P2]` Jinja2 template system — **seeds hardware llms.txt standard (Gap G6)**
   - Template per output target: claude, codex, cursor, gemini, copilot
   - Templates in `src/hwcc/templates/`
   - User-customizable: copy template to `.rag/templates/` to override

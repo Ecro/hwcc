@@ -1,0 +1,18 @@
+# {{ peripheral_name }}{% if mcu %} — {{ mcu }}{% endif %}
+
+{% if peripheral_details %}
+{{ peripheral_details }}
+{% endif %}
+{% if register_map %}
+## Register Map
+
+{{ register_map }}
+{% endif %}
+{% if errata %}
+## Known Errata
+{% for e in errata %}
+- ⚠ **{{ e.errata_id }}**: {{ e.title }}
+{% if e.description %}  {{ e.description }}
+{% endif %}
+{% endfor %}
+{% endif %}

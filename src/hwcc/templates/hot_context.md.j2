@@ -1,0 +1,55 @@
+# Hardware Context{% if project_name %} — {{ project_name }}{% endif %}
+
+{% if mcu %}
+## Target Hardware
+- **MCU**: {{ mcu }}{% if architecture %} ({{ architecture }}{% if clock_mhz %}, {{ clock_mhz }}MHz{% endif %}){% endif %}
+
+{% if mcu_family %}- **Family**: {{ mcu_family }}
+{% endif %}
+{% if flash_kb %}- **Flash**: {{ flash_kb }}KB
+{% endif %}
+{% if ram_kb %}- **RAM**: {{ ram_kb }}KB
+{% endif %}
+{% endif %}
+{% if rtos or hal or build_system %}
+## Software Stack
+{% if rtos %}- **RTOS**: {{ rtos }}
+{% endif %}
+{% if hal %}- **HAL**: {{ hal }}
+{% endif %}
+{% if language %}- **Language**: {{ language }}
+{% endif %}
+{% if build_system %}- **Build**: {{ build_system }}
+{% endif %}
+{% endif %}
+{% if documents %}
+## Indexed Documents
+| Document | Type | Chip | Chunks |
+|----------|------|------|--------|
+{% for doc in documents %}
+| {{ doc.title }} | {{ doc.doc_type }} | {{ doc.chip }} | {{ doc.chunk_count }} |
+{% endfor %}
+{% endif %}
+{% if peripherals %}
+## Peripherals
+{% for p in peripherals %}
+- **{{ p.name }}**{% if p.description %}: {{ p.description }}{% endif %}{% if p.register_count %} ({{ p.register_count }} registers){% endif %}
+
+{% endfor %}
+{% endif %}
+{% if errata %}
+## Errata Highlights
+{% for e in errata %}
+- ⚠ **{{ e.errata_id }}**{% if e.affected_peripheral %} ({{ e.affected_peripheral }}){% endif %}: {{ e.title }}{% if e.severity == "critical" %} [CRITICAL]{% elif e.severity == "high" %} [HIGH]{% endif %}
+
+{% endfor %}
+{% endif %}
+{% if register_access or error_handling or naming %}
+## Coding Conventions
+{% if register_access %}- **Register access**: {{ register_access }}
+{% endif %}
+{% if error_handling %}- **Error handling**: {{ error_handling }}
+{% endif %}
+{% if naming %}- **Naming**: {{ naming }}
+{% endif %}
+{% endif %}
