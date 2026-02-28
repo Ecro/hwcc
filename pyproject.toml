@@ -33,6 +33,7 @@ dependencies = [
     "cmsis-svd>=0.6",
     "pymupdf>=1.24",
     "pdfplumber>=0.11",
+    "tiktoken>=0.7",
 ]
 
 [project.optional-dependencies]
@@ -85,7 +86,7 @@ module = "tests.*"
 disallow_untyped_defs = false
 
 [[tool.mypy.overrides]]
-module = ["pymupdf", "pymupdf.*", "pdfplumber", "pdfplumber.*", "fitz", "fitz.*"]
+module = ["pymupdf", "pymupdf.*", "pdfplumber", "pdfplumber.*", "fitz", "fitz.*", "tiktoken", "tiktoken.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

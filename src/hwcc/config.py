@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 _T = TypeVar("_T")
 
 __all__ = [
+    "ChunkConfig",
     "ConventionsConfig",
     "EmbeddingConfig",
     "HardwareConfig",
@@ -82,6 +83,15 @@ class ConventionsConfig:
 
 
 @dataclass
+class ChunkConfig:
+    """[chunk] section."""
+
+    max_tokens: int = 512
+    overlap_tokens: int = 50
+    min_tokens: int = 50
+
+
+@dataclass
 class EmbeddingConfig:
     """[embedding] section."""
 
@@ -115,6 +125,7 @@ class HwccConfig:
     hardware: HardwareConfig = field(default_factory=HardwareConfig)
     software: SoftwareConfig = field(default_factory=SoftwareConfig)
     conventions: ConventionsConfig = field(default_factory=ConventionsConfig)
+    chunk: ChunkConfig = field(default_factory=ChunkConfig)
     embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
     llm: LlmConfig = field(default_factory=LlmConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
@@ -138,6 +149,7 @@ def _config_to_dict(config: HwccConfig) -> dict[str, object]:
         "hardware",
         "software",
         "conventions",
+        "chunk",
         "embedding",
         "llm",
         "output",
@@ -188,6 +200,7 @@ def load_config(path: Path) -> HwccConfig:
         "hardware": HardwareConfig,
         "software": SoftwareConfig,
         "conventions": ConventionsConfig,
+        "chunk": ChunkConfig,
         "embedding": EmbeddingConfig,
         "llm": LlmConfig,
         "output": OutputConfig,

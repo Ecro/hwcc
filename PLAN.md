@@ -125,7 +125,7 @@ hwcc status
   - Detect and preserve code blocks
   - Extract front-matter metadata if present
 
-- [ ] **1.5** Chunking engine
+- [x] **1.5** Chunking engine
   - Recursive token splitter (tiktoken for counting)
   - Default: 512 tokens, 10% overlap
   - Table-aware: never split mid-table

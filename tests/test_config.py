@@ -110,6 +110,19 @@ class TestConfigRoundTrip:
         save_config(default_config(), path)
         assert path.exists()
 
+    def test_chunk_config_roundtrip(self, tmp_path: Path):
+        """ChunkConfig values should survive save/load round-trip."""
+        path = tmp_path / "config.toml"
+        config = HwccConfig()
+        config.chunk.max_tokens = 1024
+        config.chunk.overlap_tokens = 100
+        config.chunk.min_tokens = 75
+        save_config(config, path)
+        loaded = load_config(path)
+        assert loaded.chunk.max_tokens == 1024
+        assert loaded.chunk.overlap_tokens == 100
+        assert loaded.chunk.min_tokens == 75
+
 
 class TestConfigErrors:
     def test_load_nonexistent_raises_config_error(self, tmp_path: Path):
