@@ -98,6 +98,8 @@ class EmbeddingConfig:
     model: str = "nomic-embed-text"
     provider: str = "ollama"
     api_key_env: str = ""
+    base_url: str = ""
+    batch_size: int = 64
 
 
 @dataclass

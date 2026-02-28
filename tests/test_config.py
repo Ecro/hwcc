@@ -110,6 +110,29 @@ class TestConfigRoundTrip:
         save_config(default_config(), path)
         assert path.exists()
 
+    def test_embedding_config_roundtrip(self, tmp_path: Path):
+        """EmbeddingConfig fields including base_url and batch_size survive round-trip."""
+        path = tmp_path / "config.toml"
+        config = HwccConfig()
+        config.embedding.model = "mxbai-embed-large"
+        config.embedding.provider = "openai"
+        config.embedding.base_url = "http://localhost:8080/v1"
+        config.embedding.batch_size = 32
+        config.embedding.api_key_env = "OPENAI_API_KEY"
+        save_config(config, path)
+        loaded = load_config(path)
+        assert loaded.embedding.model == "mxbai-embed-large"
+        assert loaded.embedding.provider == "openai"
+        assert loaded.embedding.base_url == "http://localhost:8080/v1"
+        assert loaded.embedding.batch_size == 32
+        assert loaded.embedding.api_key_env == "OPENAI_API_KEY"
+
+    def test_default_embedding_config_new_fields(self):
+        """New EmbeddingConfig fields have correct defaults."""
+        config = default_config()
+        assert config.embedding.base_url == ""
+        assert config.embedding.batch_size == 64
+
     def test_chunk_config_roundtrip(self, tmp_path: Path):
         """ChunkConfig values should survive save/load round-trip."""
         path = tmp_path / "config.toml"

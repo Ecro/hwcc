@@ -133,7 +133,7 @@ hwcc status
   - Section-boundary-aware: prefer splitting at headings
   - Metadata per chunk: doc_id, section_path, page, chunk_level, peripheral, **chip** (for multi-vendor support — Gap G5)
 
-- [ ] **1.6** Embedding engine
+- [x] **1.6** Embedding engine
   - Abstract `EmbeddingProvider` interface
   - Ollama provider (default): `nomic-embed-text`
   - OpenAI-compatible provider: any OpenAI-compatible endpoint
