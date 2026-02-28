@@ -140,7 +140,7 @@ hwcc status
   - Batch embedding for efficiency
   - Error handling: graceful fallback if Ollama not running
 
-- [ ] **1.7** ChromaDB storage
+- [x] **1.7** ChromaDB storage
   - Use `PersistentClient` (file-based, no server)
   - Collection per project
   - Store: embedding, chunk text, metadata

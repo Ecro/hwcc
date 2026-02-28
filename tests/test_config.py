@@ -25,7 +25,9 @@ class TestDefaultConfig:
         assert config.hardware is not None
         assert config.software is not None
         assert config.conventions is not None
+        assert config.chunk is not None
         assert config.embedding is not None
+        assert config.store is not None
         assert config.llm is not None
         assert config.output is not None
 
@@ -132,6 +134,23 @@ class TestConfigRoundTrip:
         config = default_config()
         assert config.embedding.base_url == ""
         assert config.embedding.batch_size == 64
+
+    def test_store_config_roundtrip(self, tmp_path: Path):
+        """StoreConfig fields survive save/load round-trip."""
+        path = tmp_path / "config.toml"
+        config = HwccConfig()
+        config.store.provider = "chromadb"
+        config.store.collection_name = "my_project"
+        save_config(config, path)
+        loaded = load_config(path)
+        assert loaded.store.provider == "chromadb"
+        assert loaded.store.collection_name == "my_project"
+
+    def test_default_store_config(self):
+        """StoreConfig has correct defaults."""
+        config = default_config()
+        assert config.store.provider == "chromadb"
+        assert config.store.collection_name == "hwcc"
 
     def test_chunk_config_roundtrip(self, tmp_path: Path):
         """ChunkConfig values should survive save/load round-trip."""

@@ -35,6 +35,7 @@ __all__ = [
     "OutputConfig",
     "ProjectConfig",
     "SoftwareConfig",
+    "StoreConfig",
     "default_config",
     "load_config",
     "save_config",
@@ -103,6 +104,14 @@ class EmbeddingConfig:
 
 
 @dataclass
+class StoreConfig:
+    """[store] section."""
+
+    provider: str = "chromadb"
+    collection_name: str = "hwcc"
+
+
+@dataclass
 class LlmConfig:
     """[llm] section."""
 
@@ -129,6 +138,7 @@ class HwccConfig:
     conventions: ConventionsConfig = field(default_factory=ConventionsConfig)
     chunk: ChunkConfig = field(default_factory=ChunkConfig)
     embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
+    store: StoreConfig = field(default_factory=StoreConfig)
     llm: LlmConfig = field(default_factory=LlmConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
 
@@ -153,6 +163,7 @@ def _config_to_dict(config: HwccConfig) -> dict[str, object]:
         "conventions",
         "chunk",
         "embedding",
+        "store",
         "llm",
         "output",
     ):
@@ -204,6 +215,7 @@ def load_config(path: Path) -> HwccConfig:
         "conventions": ConventionsConfig,
         "chunk": ChunkConfig,
         "embedding": EmbeddingConfig,
+        "store": StoreConfig,
         "llm": LlmConfig,
         "output": OutputConfig,
     }
