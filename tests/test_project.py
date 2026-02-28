@@ -32,7 +32,7 @@ class TestProjectInit:
         pm = ProjectManager(project_dir)
         pm.init()
         config = load_config(project_dir / RAG_DIR / CONFIG_FILE)
-        assert config.embedding.model == "nomic-embed-text"
+        assert config.embedding.model == "all-MiniLM-L6-v2"
 
     def test_creates_empty_manifest(self, project_dir: Path):
         pm = ProjectManager(project_dir)

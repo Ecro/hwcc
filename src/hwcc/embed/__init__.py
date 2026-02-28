@@ -1,12 +1,14 @@
 """Embedding engine — abstract provider interface and concrete providers."""
 
 from hwcc.embed.base import BaseEmbedder
+from hwcc.embed.chromadb_embed import ChromaDBEmbedder
 from hwcc.embed.ollama import OllamaEmbedder
 from hwcc.embed.openai_compat import OpenAICompatEmbedder
 from hwcc.registry import default_registry
 
-__all__ = ["BaseEmbedder", "OllamaEmbedder", "OpenAICompatEmbedder"]
+__all__ = ["BaseEmbedder", "ChromaDBEmbedder", "OllamaEmbedder", "OpenAICompatEmbedder"]
 
 # Register built-in embedding providers
+default_registry.register("embedding", "chromadb", lambda cfg: ChromaDBEmbedder(cfg))
 default_registry.register("embedding", "ollama", lambda cfg: OllamaEmbedder(cfg))
 default_registry.register("embedding", "openai", lambda cfg: OpenAICompatEmbedder(cfg))

@@ -96,8 +96,8 @@ class ChunkConfig:
 class EmbeddingConfig:
     """[embedding] section."""
 
-    model: str = "nomic-embed-text"
-    provider: str = "ollama"
+    model: str = "all-MiniLM-L6-v2"
+    provider: str = "chromadb"
     api_key_env: str = ""
     base_url: str = ""
     batch_size: int = 64

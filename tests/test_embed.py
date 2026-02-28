@@ -1,15 +1,16 @@
-"""Tests for hwcc.embed — OllamaEmbedder and OpenAICompatEmbedder."""
+"""Tests for hwcc.embed — ChromaDBEmbedder, OllamaEmbedder, and OpenAICompatEmbedder."""
 
 from __future__ import annotations
 
 import json
 import os
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from hwcc.config import HwccConfig
 from hwcc.embed.base import BaseEmbedder
+from hwcc.embed.chromadb_embed import ChromaDBEmbedder
 from hwcc.embed.ollama import OllamaEmbedder
 from hwcc.embed.openai_compat import OpenAICompatEmbedder
 from hwcc.exceptions import EmbeddingError
@@ -65,6 +66,171 @@ class _FakeResponse:
 
     def __exit__(self, *args: object) -> None:
         pass
+
+
+# --- ChromaDBEmbedder Tests ---
+
+
+def _mock_ef(texts):
+    """Mock ChromaDB DefaultEmbeddingFunction returning 384-dim vectors."""
+    return [[0.1] * 384 for _ in texts]
+
+
+class TestChromaDBEmbedderInit:
+    def test_is_base_embedder(self):
+        config = HwccConfig()
+        with patch(
+            "hwcc.embed.chromadb_embed.DefaultEmbeddingFunction",
+            return_value=MagicMock(side_effect=_mock_ef),
+        ):
+            embedder = ChromaDBEmbedder(config)
+        assert isinstance(embedder, BaseEmbedder)
+
+    def test_warns_on_unsupported_model(self, caplog):
+        config = HwccConfig()
+        config.embedding.model = "bge-large-en"
+        with patch(
+            "hwcc.embed.chromadb_embed.DefaultEmbeddingFunction",
+            return_value=MagicMock(side_effect=_mock_ef),
+        ):
+            ChromaDBEmbedder(config)
+        assert "ignoring model='bge-large-en'" in caplog.text
+
+    def test_no_warning_on_default_model(self, caplog):
+        config = HwccConfig()
+        with patch(
+            "hwcc.embed.chromadb_embed.DefaultEmbeddingFunction",
+            return_value=MagicMock(side_effect=_mock_ef),
+        ):
+            ChromaDBEmbedder(config)
+        assert "ignoring model" not in caplog.text
+
+    def test_raises_on_init_failure(self):
+        config = HwccConfig()
+        with (
+            patch(
+                "hwcc.embed.chromadb_embed.DefaultEmbeddingFunction",
+                side_effect=RuntimeError("ONNX not available"),
+            ),
+            pytest.raises(EmbeddingError, match="Failed to initialize"),
+        ):
+            ChromaDBEmbedder(config)
+
+
+class TestChromaDBEmbedChunks:
+    def _make_embedder(self):
+        config = HwccConfig()
+        mock_ef = MagicMock(side_effect=_mock_ef)
+        with patch(
+            "hwcc.embed.chromadb_embed.DefaultEmbeddingFunction",
+            return_value=mock_ef,
+        ):
+            return ChromaDBEmbedder(config)
+
+    def test_embeds_single_chunk(self):
+        embedder = self._make_embedder()
+        chunk = _make_chunk()
+        result = embedder.embed_chunks([chunk])
+
+        assert len(result) == 1
+        assert isinstance(result[0], EmbeddedChunk)
+        assert result[0].chunk is chunk
+        assert len(result[0].embedding) == 384
+        assert isinstance(result[0].embedding, tuple)
+
+    def test_embeds_multiple_chunks(self):
+        embedder = self._make_embedder()
+        chunks = _make_chunks(5)
+        result = embedder.embed_chunks(chunks)
+
+        assert len(result) == 5
+        for i, ec in enumerate(result):
+            assert ec.chunk is chunks[i]
+
+    def test_empty_chunks_returns_empty(self):
+        embedder = self._make_embedder()
+        result = embedder.embed_chunks([])
+        assert result == []
+
+    def test_raises_on_embedding_failure(self):
+        config = HwccConfig()
+        mock_ef = MagicMock(side_effect=RuntimeError("ONNX error"))
+        with patch(
+            "hwcc.embed.chromadb_embed.DefaultEmbeddingFunction",
+            return_value=mock_ef,
+        ):
+            embedder = ChromaDBEmbedder(config)
+
+        chunk = _make_chunk()
+        with pytest.raises(EmbeddingError, match="ChromaDB embedding failed"):
+            embedder.embed_chunks([chunk])
+
+    def test_raises_on_count_mismatch(self):
+        config = HwccConfig()
+        # Return wrong number of embeddings
+        mock_ef = MagicMock(return_value=[[0.1] * 384, [0.2] * 384])
+        with patch(
+            "hwcc.embed.chromadb_embed.DefaultEmbeddingFunction",
+            return_value=mock_ef,
+        ):
+            embedder = ChromaDBEmbedder(config)
+
+        chunks = _make_chunks(3)
+        with pytest.raises(EmbeddingError, match="3 inputs"):
+            embedder.embed_chunks(chunks)
+
+
+class TestChromaDBEmbedQuery:
+    def test_returns_vector(self):
+        config = HwccConfig()
+        mock_ef = MagicMock(side_effect=_mock_ef)
+        with patch(
+            "hwcc.embed.chromadb_embed.DefaultEmbeddingFunction",
+            return_value=mock_ef,
+        ):
+            embedder = ChromaDBEmbedder(config)
+
+        result = embedder.embed_query("SPI configuration")
+        assert isinstance(result, list)
+        assert len(result) == 384
+
+    def test_raises_on_error(self):
+        config = HwccConfig()
+        mock_ef = MagicMock(side_effect=RuntimeError("fail"))
+        with patch(
+            "hwcc.embed.chromadb_embed.DefaultEmbeddingFunction",
+            return_value=mock_ef,
+        ):
+            embedder = ChromaDBEmbedder(config)
+
+        with pytest.raises(EmbeddingError, match="query embedding failed"):
+            embedder.embed_query("test")
+
+
+class TestChromaDBDimension:
+    def test_returns_384(self):
+        config = HwccConfig()
+        mock_ef = MagicMock(side_effect=_mock_ef)
+        with patch(
+            "hwcc.embed.chromadb_embed.DefaultEmbeddingFunction",
+            return_value=mock_ef,
+        ):
+            embedder = ChromaDBEmbedder(config)
+
+        assert embedder.dimension == 384
+
+    def test_caches_dimension_after_embed(self):
+        config = HwccConfig()
+        mock_ef = MagicMock(side_effect=_mock_ef)
+        with patch(
+            "hwcc.embed.chromadb_embed.DefaultEmbeddingFunction",
+            return_value=mock_ef,
+        ):
+            embedder = ChromaDBEmbedder(config)
+
+        embedder.embed_chunks([_make_chunk()])
+        # Second call should use cached value, not call embed_query
+        assert embedder.dimension == 384
 
 
 # --- OllamaEmbedder Tests ---
@@ -512,6 +678,22 @@ class TestBatchSizeValidation:
 
 
 class TestRegistryIntegration:
+    def test_registry_creates_chromadb_embedder(self):
+        from hwcc.registry import default_registry
+
+        config = HwccConfig()
+        with patch(
+            "hwcc.embed.chromadb_embed.DefaultEmbeddingFunction",
+            return_value=MagicMock(side_effect=_mock_ef),
+        ):
+            embedder = default_registry.create("embedding", "chromadb", config)
+        assert isinstance(embedder, ChromaDBEmbedder)
+        assert isinstance(embedder, BaseEmbedder)
+
+    def test_default_config_uses_chromadb(self):
+        config = HwccConfig()
+        assert config.embedding.provider == "chromadb"
+
     def test_registry_creates_ollama_embedder(self):
         from hwcc.registry import default_registry
 

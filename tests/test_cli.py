@@ -155,9 +155,9 @@ class TestStatusWithDocuments:
         monkeypatch.chdir(initialized_project)
         result = runner.invoke(app, ["status"])
         assert result.exit_code == 0
-        # Default config: nomic-embed-text, ollama
-        assert "nomic-embed-text" in result.output
-        assert "ollama" in result.output
+        # Default config: all-MiniLM-L6-v2, chromadb
+        assert "all-MiniLM-L6-v2" in result.output
+        assert "chromadb" in result.output
 
     def test_status_shows_store_size(
         self, initialized_project: Path, monkeypatch: pytest.MonkeyPatch

@@ -33,8 +33,8 @@ class TestDefaultConfig:
 
     def test_default_embedding_model(self):
         config = default_config()
-        assert config.embedding.model == "nomic-embed-text"
-        assert config.embedding.provider == "ollama"
+        assert config.embedding.model == "all-MiniLM-L6-v2"
+        assert config.embedding.provider == "chromadb"
 
     def test_default_output_targets(self):
         config = default_config()
@@ -81,7 +81,7 @@ class TestConfigRoundTrip:
 
         loaded = load_config(path)
         assert loaded.project.name == "partial"
-        assert loaded.embedding.model == "nomic-embed-text"
+        assert loaded.embedding.model == "all-MiniLM-L6-v2"
         assert loaded.output.hot_context_max_lines == 120
 
     def test_zero_and_empty_string_survive_roundtrip(self, tmp_path: Path):
