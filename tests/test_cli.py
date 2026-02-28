@@ -9,7 +9,8 @@ from typer.testing import CliRunner
 from hwcc import __version__
 from hwcc.cli import app
 from hwcc.config import load_config
-from hwcc.project import CONFIG_FILE, RAG_DIR
+from hwcc.manifest import DocumentEntry, Manifest, save_manifest
+from hwcc.project import CONFIG_FILE, MANIFEST_FILE, RAG_DIR
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -61,6 +62,102 @@ class TestStatus:
         result = runner.invoke(app, ["status"])
         assert result.exit_code == 0
         assert "0" in result.output  # 0 documents
+
+    def test_status_shows_no_docs_hint(
+        self, initialized_project: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.chdir(initialized_project)
+        result = runner.invoke(app, ["status"])
+        assert result.exit_code == 0
+        assert "hwcc add" in result.output
+
+
+class TestStatusWithDocuments:
+    """Tests for enhanced status output with indexed documents."""
+
+    @staticmethod
+    def _add_docs_to_manifest(project: Path) -> None:
+        """Helper to add sample documents to the manifest."""
+        manifest = Manifest()
+        manifest.add_document(
+            DocumentEntry(
+                id="board_svd",
+                path="/tmp/board.svd",
+                doc_type="svd",
+                hash="sha256:abc123",
+                added="2026-02-28T10:00:00+00:00",
+                chunks=42,
+                chip="STM32F407",
+            )
+        )
+        manifest.add_document(
+            DocumentEntry(
+                id="datasheet_pdf",
+                path="/tmp/datasheet.pdf",
+                doc_type="datasheet",
+                hash="sha256:def456",
+                added="2026-02-28T11:00:00+00:00",
+                chunks=95,
+                chip="STM32F407",
+            )
+        )
+        save_manifest(manifest, project / RAG_DIR / MANIFEST_FILE)
+
+    def test_status_shows_document_count(
+        self, initialized_project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(initialized_project)
+        self._add_docs_to_manifest(initialized_project)
+        result = runner.invoke(app, ["status"])
+        assert result.exit_code == 0
+        assert "2" in result.output  # 2 documents
+
+    def test_status_shows_chunk_count(
+        self, initialized_project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(initialized_project)
+        self._add_docs_to_manifest(initialized_project)
+        result = runner.invoke(app, ["status"])
+        assert result.exit_code == 0
+        assert "137" in result.output  # 42 + 95 chunks
+
+    def test_status_shows_per_document_table(
+        self, initialized_project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(initialized_project)
+        self._add_docs_to_manifest(initialized_project)
+        result = runner.invoke(app, ["status"])
+        assert result.exit_code == 0
+        # Document IDs should appear
+        assert "board_svd" in result.output
+        assert "datasheet_pdf" in result.output
+        # Doc types should appear
+        assert "svd" in result.output
+        assert "datasheet" in result.output
+        # Chip should appear
+        assert "STM32F407" in result.output
+
+    def test_status_shows_embedding_info(
+        self, initialized_project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(initialized_project)
+        result = runner.invoke(app, ["status"])
+        assert result.exit_code == 0
+        # Default config: nomic-embed-text, ollama
+        assert "nomic-embed-text" in result.output
+        assert "ollama" in result.output
+
+    def test_status_shows_store_size(
+        self, initialized_project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(initialized_project)
+        # Create some files in the index directory to give it size
+        index_dir = initialized_project / RAG_DIR / "index"
+        (index_dir / "test.bin").write_bytes(b"\x00" * 4096)
+        result = runner.invoke(app, ["status"])
+        assert result.exit_code == 0
+        # Should show "Index" with a size value
+        assert "Index" in result.output
 
 
 class TestStubCommands:

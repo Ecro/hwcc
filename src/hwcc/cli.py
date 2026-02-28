@@ -91,6 +91,24 @@ def init(
     console.print("  hwcc status            Show project status")
 
 
+def _dir_size(path: Path) -> int:
+    """Compute total size in bytes of all files under a directory."""
+    if not path.is_dir():
+        return 0
+    return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+
+
+def _format_size(size_bytes: int) -> str:
+    """Format byte count as human-readable string."""
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    size_kb = size_bytes / 1024
+    if size_kb < 1024:
+        return f"{size_kb:.1f} KB"
+    size_mb = size_kb / 1024
+    return f"{size_mb:.1f} MB"
+
+
 @app.command()
 def status() -> None:
     """Show project status: indexed documents, chunks, config."""
@@ -109,14 +127,39 @@ def status() -> None:
         if st.config.software.rtos:
             console.print(f"  RTOS: {st.config.software.rtos}")
 
-    table = Table(show_header=False, box=None, padding=(0, 2))
-    table.add_column("metric", style="dim")
-    table.add_column("value", style="bold")
-    table.add_row("Documents", str(st.document_count))
-    table.add_row("Chunks", str(st.chunk_count))
-    console.print(table)
+    # Summary table
+    summary = Table(show_header=False, box=None, padding=(0, 2))
+    summary.add_column("metric", style="dim")
+    summary.add_column("value", style="bold")
+    summary.add_row("Documents", str(st.document_count))
+    summary.add_row("Chunks", str(st.chunk_count))
 
-    if st.document_count == 0:
+    if st.config:
+        embedding_str = f"{st.config.embedding.model} ({st.config.embedding.provider})"
+        summary.add_row("Embedding", embedding_str)
+
+    index_size = _dir_size(pm.rag_dir / "index")
+    summary.add_row("Index", _format_size(index_size))
+
+    console.print(summary)
+
+    # Per-document table
+    if st.document_count > 0:
+        manifest = load_manifest(pm.manifest_path)
+        doc_table = Table(box=None, padding=(0, 2))
+        doc_table.add_column("ID", style="bold")
+        doc_table.add_column("Type")
+        doc_table.add_column("Chip")
+        doc_table.add_column("Chunks", justify="right")
+        doc_table.add_column("Added")
+
+        for doc in manifest.documents:
+            added_date = doc.added[:10] if len(doc.added) >= 10 else doc.added
+            doc_table.add_row(doc.id, doc.doc_type, doc.chip, str(doc.chunks), added_date)
+
+        console.print("\nDocuments:")
+        console.print(doc_table)
+    else:
         console.print(
             "\n[dim]No documents indexed yet. Run [bold]hwcc add <file>[/bold] to start.[/dim]"
         )

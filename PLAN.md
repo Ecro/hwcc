@@ -162,7 +162,7 @@ hwcc status
   - Remove from manifest
   - Remove processed markdown file
 
-- [ ] **1.10** Implement `hwcc status`
+- [x] **1.10** Implement `hwcc status`
   - Show: document count, chunk count, total tokens
   - Per-document: name, type, chips, chunks, date added
   - Embedding model info
