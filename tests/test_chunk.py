@@ -703,6 +703,48 @@ class TestContentType:
 
 
 # ---------------------------------------------------------------------------
+# Page marker extraction (PDF source provenance)
+# ---------------------------------------------------------------------------
+
+
+class TestPageMarkerExtraction:
+    def test_page_number_extracted_from_marker(self, chunker, config):
+        """Chunks with <!-- PAGE:N --> markers should have page set in metadata."""
+        content = "<!-- PAGE:5 -->\n# SPI Configuration\n\nSPI details here."
+        result = _make_result(content, doc_type="pdf")
+        chunks = chunker.chunk(result, config)
+        assert len(chunks) == 1
+        assert chunks[0].metadata.page == 5
+
+    def test_page_markers_stripped_from_content(self, chunker, config):
+        """Page markers should not appear in stored chunk content."""
+        content = "<!-- PAGE:3 -->\nSome text about registers."
+        result = _make_result(content, doc_type="pdf")
+        chunks = chunker.chunk(result, config)
+        assert len(chunks) == 1
+        assert "<!-- PAGE:" not in chunks[0].content
+        assert "Some text about registers" in chunks[0].content
+
+    def test_no_markers_page_defaults_to_zero(self, chunker, config):
+        """Without page markers, page should default to 0."""
+        content = "Regular content with no page markers."
+        result = _make_result(content)
+        chunks = chunker.chunk(result, config)
+        assert len(chunks) == 1
+        assert chunks[0].metadata.page == 0
+
+    def test_first_marker_wins_for_multi_page_chunk(self, chunker, config):
+        """When a chunk spans pages, use the first page marker."""
+        content = "<!-- PAGE:10 -->\nFirst page content.\n\n<!-- PAGE:11 -->\nSecond page content."
+        result = _make_result(content, doc_type="pdf")
+        chunks = chunker.chunk(result, config)
+        assert len(chunks) >= 1
+        assert chunks[0].metadata.page == 10
+        # Markers should be stripped
+        assert "<!-- PAGE:" not in chunks[0].content
+
+
+# ---------------------------------------------------------------------------
 # Integration: realistic hardware content
 # ---------------------------------------------------------------------------
 

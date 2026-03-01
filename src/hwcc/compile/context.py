@@ -104,6 +104,12 @@ class CompileContext:
     error_handling: str = ""
     naming: str = ""
 
+    # Pin assignments from config [pins] section
+    pin_assignments: tuple[tuple[str, str], ...] = ()
+
+    # Peripheral-specific pins (filtered per peripheral)
+    peripheral_pins: tuple[tuple[str, str], ...] = ()
+
     # Compiled data (populated by tasks 2.1, 2.2)
     documents: tuple[DocumentSummary, ...] = ()
     peripherals: tuple[PeripheralSummary, ...] = ()
@@ -150,6 +156,7 @@ class CompileContext:
             register_access=config.conventions.register_access,
             error_handling=config.conventions.error_handling,
             naming=config.conventions.naming,
+            pin_assignments=tuple(sorted(config.pins.items())),
             hwcc_version=__version__,
             generated_at=datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
         )

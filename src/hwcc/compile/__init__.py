@@ -1,6 +1,7 @@
 """Context compilation — generates output files from indexed documents."""
 
 from hwcc.compile.base import BaseCompiler
+from hwcc.compile.citations import build_title_map, format_citation
 from hwcc.compile.context import (
     CompileContext,
     DocumentSummary,
@@ -25,4 +26,6 @@ __all__ = [
     "PeripheralSummary",
     "TargetInfo",
     "TemplateEngine",
+    "build_title_map",
+    "format_citation",
 ]

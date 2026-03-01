@@ -329,7 +329,9 @@ class TestPeripheralCompilerBasic:
         from hwcc.exceptions import CompileError as CE
 
         class BrokenStore(FakeStore):
-            def get_chunks(self, where: dict[str, str | dict[str, str]] | None = None) -> list[Chunk]:
+            def get_chunks(
+                self, where: dict[str, str | dict[str, str]] | None = None,
+            ) -> list[Chunk]:
                 msg = "connection lost"
                 raise RuntimeError(msg)
 
@@ -766,6 +768,158 @@ class TestRenderedOutput:
 
         expected_dir = project_dir / ".rag" / "context" / "peripherals"
         assert paths[0].parent == expected_dir
+
+
+# ---------------------------------------------------------------------------
+# Tests: Pin assignments in peripheral context
+# ---------------------------------------------------------------------------
+
+
+class TestPinAssignments:
+    """Tests for pin filtering and rendering in peripheral context."""
+
+    def test_filter_pins_by_prefix(self, project_dir: Path) -> None:
+        compiler = PeripheralContextCompiler(project_dir)
+        pins = {"spi1_sck": "PA5", "spi1_mosi": "PA7", "i2c1_scl": "PB6", "led": "PC13"}
+        result = compiler._filter_pins_for_peripheral("SPI1", pins)
+        assert result == [("MOSI", "PA7"), ("SCK", "PA5")]
+
+    def test_filter_pins_case_insensitive(self, project_dir: Path) -> None:
+        compiler = PeripheralContextCompiler(project_dir)
+        pins = {"SPI1_SCK": "PA5", "SPI1_MOSI": "PA7"}
+        result = compiler._filter_pins_for_peripheral("SPI1", pins)
+        assert len(result) == 2
+
+    def test_filter_pins_no_false_positive(self, project_dir: Path) -> None:
+        """SPI1 prefix must not match SPI10."""
+        compiler = PeripheralContextCompiler(project_dir)
+        pins = {"spi10_sck": "PA5"}
+        result = compiler._filter_pins_for_peripheral("SPI1", pins)
+        assert result == []
+
+    def test_pins_in_rendered_output(
+        self,
+        project_dir: Path,
+        spi_chunks: list[Chunk],
+    ) -> None:
+        config_with_pins = HwccConfig(
+            project=ProjectConfig(name="test-project"),
+            hardware=HardwareConfig(mcu="STM32F407VGT6", mcu_family="STM32F4"),
+            software=SoftwareConfig(language="C"),
+            pins={"spi1_sck": "PA5", "spi1_mosi": "PA7"},
+        )
+        store = FakeStore(spi_chunks)
+        compiler = PeripheralContextCompiler(project_dir)
+        paths = compiler.compile(store, config_with_pins)
+
+        content = paths[0].read_text(encoding="utf-8")
+        assert "## Pin Assignments" in content
+        assert "PA5" in content
+        assert "PA7" in content
+
+    def test_no_pins_section_when_empty(
+        self,
+        project_dir: Path,
+        config: HwccConfig,
+        spi_chunks: list[Chunk],
+    ) -> None:
+        store = FakeStore(spi_chunks)
+        compiler = PeripheralContextCompiler(project_dir)
+        paths = compiler.compile(store, config)
+
+        content = paths[0].read_text(encoding="utf-8")
+        assert "## Pin Assignments" not in content
+
+
+# ---------------------------------------------------------------------------
+# Tests: Citations in output
+# ---------------------------------------------------------------------------
+
+
+class TestCitationsInOutput:
+    """Tests for source provenance citations in compiled output."""
+
+    def test_detail_chunks_have_citations(
+        self,
+        project_dir: Path,
+        config: HwccConfig,
+        spi_chunks: list[Chunk],
+        datasheet_chunks: list[Chunk],
+    ) -> None:
+        """Non-SVD detail chunks should have inline *Source:* citations."""
+        # Create manifest so title_map works
+        from hwcc.manifest import DocumentEntry, Manifest, save_manifest
+
+        manifest = Manifest()
+        manifest.add_document(DocumentEntry(
+            id="test_datasheet",
+            path="/docs/STM32F407_Datasheet.pdf",
+            doc_type="datasheet",
+            hash="abc",
+            added="2026-01-01",
+            chunks=10,
+        ))
+        manifest.add_document(DocumentEntry(
+            id="test_svd",
+            path="/docs/stm32f407.svd",
+            doc_type="svd",
+            hash="def",
+            added="2026-01-01",
+            chunks=50,
+        ))
+        manifest_path = project_dir / ".rag" / "manifest.json"
+        save_manifest(manifest, manifest_path)
+
+        store = FakeStore(spi_chunks + datasheet_chunks)
+        compiler = PeripheralContextCompiler(project_dir)
+        paths = compiler.compile(store, config)
+
+        content = paths[0].read_text(encoding="utf-8")
+        assert "*Source:" in content
+
+    def test_svd_register_map_has_source_citation(
+        self,
+        project_dir: Path,
+        config: HwccConfig,
+        spi_chunks: list[Chunk],
+    ) -> None:
+        """SVD register map should have a source citation appended."""
+        from hwcc.manifest import DocumentEntry, Manifest, save_manifest
+
+        manifest = Manifest()
+        manifest.add_document(DocumentEntry(
+            id="test_svd",
+            path="/docs/stm32f407.svd",
+            doc_type="svd",
+            hash="abc",
+            added="2026-01-01",
+            chunks=50,
+        ))
+        manifest_path = project_dir / ".rag" / "manifest.json"
+        save_manifest(manifest, manifest_path)
+
+        store = FakeStore(spi_chunks)
+        compiler = PeripheralContextCompiler(project_dir)
+        paths = compiler.compile(store, config)
+
+        content = paths[0].read_text(encoding="utf-8")
+        assert "*Source: stm32f407," in content
+
+    def test_no_manifest_no_crash(
+        self,
+        project_dir: Path,
+        config: HwccConfig,
+        spi_chunks: list[Chunk],
+    ) -> None:
+        """Without manifest, compilation should still work (no citations)."""
+        store = FakeStore(spi_chunks)
+        compiler = PeripheralContextCompiler(project_dir)
+        paths = compiler.compile(store, config)
+
+        content = paths[0].read_text(encoding="utf-8")
+        assert "SPI1" in content
+        # No *Source:* because no manifest
+        assert "*Source:" not in content
 
 
 # ---------------------------------------------------------------------------

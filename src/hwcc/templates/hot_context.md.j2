@@ -37,6 +37,14 @@
 {% if build_system %}- **Build**: {{ build_system }}
 {% endif %}
 {% endif %}
+{% if pin_assignments %}
+## Pin Assignments
+| Signal | Pin |
+|--------|-----|
+{% for name, pin in pin_assignments %}
+| {{ name }} | {{ pin }} |
+{% endfor %}
+{% endif %}
 {% if documents %}
 ## Indexed Documents
 | Document | Type | Chip | Chunks |

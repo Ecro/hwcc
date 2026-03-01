@@ -147,6 +147,7 @@ class HwccConfig:
     store: StoreConfig = field(default_factory=StoreConfig)
     llm: LlmConfig = field(default_factory=LlmConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
+    pins: dict[str, str] = field(default_factory=dict)
 
 
 def default_config() -> HwccConfig:
@@ -175,6 +176,8 @@ def _config_to_dict(config: HwccConfig) -> dict[str, object]:
     ):
         section = getattr(config, section_name)
         result[section_name] = _section_to_dict(section)
+    if config.pins:
+        result["pins"] = dict(config.pins)
     return result
 
 
@@ -229,6 +232,10 @@ def load_config(path: Path) -> HwccConfig:
     for name, cls in section_map.items():
         if name in data:
             setattr(config, name, _load_section(cls, data[name]))
+
+    # Load [pins] section as a flat dict (arbitrary user-defined keys)
+    if "pins" in data and isinstance(data["pins"], dict):
+        config.pins = {str(k): str(v) for k, v in data["pins"].items()}
 
     logger.info("Loaded config from %s", path)
     return config

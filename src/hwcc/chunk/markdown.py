@@ -43,6 +43,10 @@ def count_tokens(text: str) -> int:
     return len(_get_encoding().encode(text))
 
 
+# Page marker injected by PDF parser: <!-- PAGE:N -->
+_PAGE_MARKER_RE = re.compile(r"<!-- PAGE:(\d+) -->")
+_PAGE_MARKER_STRIP_RE = re.compile(r"<!-- PAGE:\d+ -->\n?")
+
 # Heading pattern: matches lines like "# Heading", "## Heading", etc.
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
 
@@ -434,6 +438,15 @@ class MarkdownChunker(BaseChunker):
             if not chunk_text:
                 continue
 
+            # Extract page number from first PAGE marker (PDF-only)
+            page_match = _PAGE_MARKER_RE.search(chunk_text)
+            page_num = int(page_match.group(1)) if page_match else 0
+
+            # Strip all page markers from content before storage
+            chunk_text = _PAGE_MARKER_STRIP_RE.sub("", chunk_text).strip()
+            if not chunk_text:
+                continue
+
             # Update section tracking
             section_tracker.update(chunk_text)
 
@@ -445,6 +458,7 @@ class MarkdownChunker(BaseChunker):
                 doc_type=result.doc_type,
                 chip=result.chip,
                 section_path=section_tracker.path,
+                page=page_num,
                 content_type=self._detect_content_type(chunk_text),
             )
 

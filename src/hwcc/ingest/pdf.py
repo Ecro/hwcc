@@ -112,7 +112,7 @@ class PdfParser(BaseParser):
                         self.FOOTER_MARGIN,
                     )
                     if page_md.strip():
-                        sections.append(page_md)
+                        sections.append(f"<!-- PAGE:{page_idx + 1} -->\n{page_md}")
                     total_tables += table_count
 
             content = "\n\n".join(sections)

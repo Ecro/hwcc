@@ -166,6 +166,46 @@ class TestConfigRoundTrip:
         assert loaded.chunk.min_tokens == 75
 
 
+class TestPinsConfig:
+    def test_default_pins_empty(self):
+        config = default_config()
+        assert config.pins == {}
+
+    def test_pins_roundtrip(self, tmp_path: Path):
+        path = tmp_path / "config.toml"
+        config = HwccConfig()
+        config.pins = {"spi1_sck": "PA5", "spi1_mosi": "PA7", "led_status": "PC13"}
+        save_config(config, path)
+        loaded = load_config(path)
+        assert loaded.pins == {"spi1_sck": "PA5", "spi1_mosi": "PA7", "led_status": "PC13"}
+
+    def test_load_toml_with_pins_section(self, tmp_path: Path):
+        path = tmp_path / "config.toml"
+        path.write_text(
+            '[project]\nname = "test"\n\n'
+            "[pins]\n"
+            'spi1_sck = "PA5"\n'
+            'uart1_tx = "PA9"\n',
+            encoding="utf-8",
+        )
+        loaded = load_config(path)
+        assert loaded.pins == {"spi1_sck": "PA5", "uart1_tx": "PA9"}
+
+    def test_no_pins_section_gets_empty_dict(self, tmp_path: Path):
+        path = tmp_path / "config.toml"
+        path.write_text('[project]\nname = "nopins"\n', encoding="utf-8")
+        loaded = load_config(path)
+        assert loaded.pins == {}
+
+    def test_empty_pins_not_serialized(self, tmp_path: Path):
+        """Empty pins dict should not produce a [pins] section in TOML."""
+        path = tmp_path / "config.toml"
+        config = HwccConfig()
+        save_config(config, path)
+        content = path.read_text(encoding="utf-8")
+        assert "[pins]" not in content
+
+
 class TestConfigErrors:
     def test_load_nonexistent_raises_config_error(self, tmp_path: Path):
         with pytest.raises(ConfigError, match="not found"):

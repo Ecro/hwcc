@@ -322,6 +322,23 @@ class TestBuildFontMap:
 # ── Edge cases ──────────────────────────────────────────────────────
 
 
+class TestPageMarkers:
+    def test_page_markers_present(self, result: ParseResult):
+        """Each page should have a <!-- PAGE:N --> marker."""
+        assert "<!-- PAGE:1 -->" in result.content
+        assert "<!-- PAGE:2 -->" in result.content
+
+    def test_page_markers_before_content(self, result: ParseResult):
+        """Page markers should precede their page's content."""
+        marker_pos = result.content.index("<!-- PAGE:1 -->")
+        spi_pos = result.content.index("## 1. SPI Peripheral")
+        assert marker_pos < spi_pos
+
+        marker2_pos = result.content.index("<!-- PAGE:2 -->")
+        gpio_pos = result.content.index("## 2. GPIO Peripheral")
+        assert marker2_pos < gpio_pos
+
+
 class TestEdgeCases:
     def test_section_continuity_across_pages(self, result: ParseResult):
         """Section 1 is on page 1, section 2 on page 2 — both present."""

@@ -10,10 +10,10 @@ from __future__ import annotations
 import logging
 from dataclasses import replace
 from datetime import UTC, datetime
-from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 
 from hwcc.compile.base import BaseCompiler
+from hwcc.compile.citations import build_title_map
 from hwcc.compile.context import CompileContext, DocumentSummary, PeripheralSummary
 from hwcc.compile.templates import TemplateEngine
 from hwcc.exceptions import CompileError, ManifestError, StoreError
@@ -132,10 +132,10 @@ class HotContextCompiler(BaseCompiler):
             logger.warning("Could not load manifest, skipping document data")
             return []
 
+        title_map = build_title_map(manifest)
         summaries: list[DocumentSummary] = []
         for entry in manifest.documents:
-            # Derive a human-readable title from the document path
-            title = self._derive_title(entry.id, entry.path)
+            title = title_map.get(entry.id, entry.id)
             summaries.append(
                 DocumentSummary(
                     doc_id=entry.id,
@@ -211,6 +211,13 @@ class HotContextCompiler(BaseCompiler):
         if self._count_lines(content) <= max_lines:
             return content
 
+        # Priority 4.5: remove pin assignments
+        if reduced.pin_assignments:
+            reduced = replace(reduced, pin_assignments=())
+            content = self._engine.render(_TEMPLATE_NAME, reduced)
+            if self._count_lines(content) <= max_lines:
+                return content
+
         # Priority 4: truncate peripherals progressively
         if reduced.peripherals:
             current_count = len(reduced.peripherals)
@@ -245,17 +252,6 @@ class HotContextCompiler(BaseCompiler):
             save_manifest(manifest, self._manifest_path)
         except ManifestError:
             logger.warning("Could not update manifest timestamp")
-
-    @staticmethod
-    def _derive_title(doc_id: str, path: str) -> str:
-        """Derive a human-readable title from document path or ID.
-
-        Prefers the filename stem, falling back to doc_id.
-        """
-        name = PurePosixPath(path).stem
-        if name:
-            return name.replace("_", " ").replace("-", " ")
-        return doc_id
 
     @staticmethod
     def _count_lines(content: str) -> int:

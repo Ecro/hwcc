@@ -11,9 +11,11 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from hwcc.compile.base import BaseCompiler
+from hwcc.compile.citations import build_title_map, format_citation
 from hwcc.compile.context import CompileContext
 from hwcc.compile.templates import TemplateEngine
-from hwcc.exceptions import CompileError
+from hwcc.exceptions import CompileError, ManifestError
+from hwcc.manifest import load_manifest
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -98,6 +100,9 @@ class PeripheralContextCompiler(BaseCompiler):
             # Load non-SVD chunks for cross-document enrichment
             non_svd_chunks = store.get_chunks(where={"doc_type": {"$ne": "svd"}})
 
+            # Build title map for citations
+            title_map = self._build_title_map()
+
             # Generate context file per peripheral
             base_context = CompileContext.from_config(config)
             output_paths: list[Path] = []
@@ -105,7 +110,27 @@ class PeripheralContextCompiler(BaseCompiler):
             for name, chip in peripherals:
                 register_map = self._extract_register_map(name, svd_chunks, chip)
                 description = self._extract_description(register_map)
-                details = self._gather_peripheral_details(name, non_svd_chunks, chip)
+                details = self._gather_peripheral_details(
+                    name, non_svd_chunks, chip, title_map=title_map,
+                )
+
+                # Add SVD source citation to register map (one per unique doc_id)
+                if register_map and title_map:
+                    seen_doc_ids: set[str] = set()
+                    svd_citations: list[str] = []
+                    for c in sorted(svd_chunks, key=lambda c: c.metadata.doc_id):
+                        if (
+                            self._chunk_belongs_to_peripheral(c, name)
+                            and (not chip or c.metadata.chip == chip)
+                            and c.metadata.doc_id not in seen_doc_ids
+                        ):
+                            seen_doc_ids.add(c.metadata.doc_id)
+                            svd_citations.append(format_citation(c.metadata, title_map))
+                    if svd_citations:
+                        register_map += "\n\n" + "\n".join(svd_citations)
+
+                # Filter pins for this peripheral
+                filtered_pins = self._filter_pins_for_peripheral(name, config.pins)
 
                 ctx = replace(
                     base_context,
@@ -113,6 +138,7 @@ class PeripheralContextCompiler(BaseCompiler):
                     peripheral_description=description,
                     register_map=register_map,
                     peripheral_details=details,
+                    peripheral_pins=tuple(filtered_pins),
                 )
 
                 content = self._engine.render(_TEMPLATE_NAME, ctx)
@@ -137,6 +163,44 @@ class PeripheralContextCompiler(BaseCompiler):
             raise CompileError(f"Failed to compile peripheral context: {e}") from e
 
         return output_paths
+
+    @staticmethod
+    def _filter_pins_for_peripheral(
+        peripheral_name: str,
+        pins: dict[str, str],
+    ) -> list[tuple[str, str]]:
+        """Filter pin assignments for a specific peripheral.
+
+        Matches pin keys by prefix: for peripheral "SPI1", matches keys
+        starting with "spi1_". The prefix is stripped and the signal name
+        is uppercased for display.
+
+        Args:
+            peripheral_name: Peripheral name (e.g., "SPI1").
+            pins: All pin assignments from config.
+
+        Returns:
+            Sorted list of (signal_name, pin) tuples.
+        """
+        prefix = peripheral_name.lower() + "_"
+        filtered: list[tuple[str, str]] = []
+        for key, pin in sorted(pins.items()):
+            if key.lower().startswith(prefix):
+                signal = key[len(prefix):].upper()
+                filtered.append((signal, pin))
+        return filtered
+
+    def _build_title_map(self) -> dict[str, str]:
+        """Build doc_id to title mapping from manifest for citations."""
+        manifest_path = self._rag_dir / "manifest.json"
+        if not manifest_path.exists():
+            return {}
+        try:
+            manifest = load_manifest(manifest_path)
+            return build_title_map(manifest)
+        except ManifestError:
+            logger.warning("Could not load manifest for citations")
+            return {}
 
     def _discover_peripherals(self, svd_chunks: list[Chunk]) -> list[tuple[str, str]]:
         """Extract unique (peripheral_name, chip) pairs from SVD chunk section_paths.
@@ -206,6 +270,7 @@ class PeripheralContextCompiler(BaseCompiler):
         peripheral_name: str,
         non_svd_chunks: list[Chunk],
         chip: str = "",
+        title_map: dict[str, str] | None = None,
     ) -> str:
         """Gather additional details about a peripheral from non-SVD documents.
 
@@ -214,6 +279,7 @@ class PeripheralContextCompiler(BaseCompiler):
         false positives like ``SPI1`` matching ``SPI10``.
 
         When ``chip`` is provided, only chunks for that chip are included.
+        When ``title_map`` is provided, inline citations are appended.
 
         Limits to ``_MAX_DETAIL_CHUNKS`` to avoid bloat.
 
@@ -221,9 +287,10 @@ class PeripheralContextCompiler(BaseCompiler):
             peripheral_name: Name of the peripheral (e.g. ``"SPI1"``).
             non_svd_chunks: All non-SVD chunks from the store.
             chip: Optional chip filter for multi-chip disambiguation.
+            title_map: Optional doc_id to title mapping for citations.
 
         Returns:
-            Concatenated detail content, or empty string.
+            Concatenated detail content with optional citations, or empty string.
         """
         relevant = [
             c
@@ -236,6 +303,13 @@ class PeripheralContextCompiler(BaseCompiler):
 
         if not relevant:
             return ""
+
+        if title_map:
+            parts = []
+            for c in relevant:
+                citation = format_citation(c.metadata, title_map)
+                parts.append(f"{c.content}\n\n{citation}")
+            return "\n\n---\n\n".join(parts).strip()
 
         return "\n\n---\n\n".join(c.content for c in relevant).strip()
 

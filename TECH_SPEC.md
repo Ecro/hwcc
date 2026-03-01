@@ -143,10 +143,10 @@ hal = "STM32 HAL v1.27.1"
 build_system = "CMake"
 # BSP: kernel = "linux-6.6", bootloader = "U-Boot 2024.01", distro = "Yocto kirkstone"
 
-# [pins] — v0.2 (task 2.6, not yet parsed by config system)
-# spi1_sck = "PA5"
-# spi1_mosi = "PA7"
-# led_status = "PC13"
+[pins]
+spi1_sck = "PA5"
+spi1_mosi = "PA7"
+led_status = "PC13"
 
 [conventions]
 register_access = "HAL functions only, no direct register writes"

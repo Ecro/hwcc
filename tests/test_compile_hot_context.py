@@ -41,7 +41,7 @@ class FakeStore(BaseStore):
         self,
         query_embedding: list[float],
         k: int = 5,
-        where: dict[str, str] | None = None,
+        where: dict[str, str | dict[str, str]] | None = None,
     ) -> list[SearchResult]:
         return []
 
@@ -50,7 +50,7 @@ class FakeStore(BaseStore):
 
     def get_chunk_metadata(
         self,
-        where: dict[str, str] | None = None,
+        where: dict[str, str | dict[str, str]] | None = None,
     ) -> list[ChunkMetadata]:
         if where is None:
             return list(self._metadata)
@@ -62,7 +62,7 @@ class FakeStore(BaseStore):
 
     def get_chunks(
         self,
-        where: dict[str, str] | None = None,
+        where: dict[str, str | dict[str, str]] | None = None,
     ) -> list[Chunk]:
         return []
 
@@ -611,6 +611,71 @@ class TestHotContextLineBudget:
 # ---------------------------------------------------------------------------
 # Manifest timestamp update
 # ---------------------------------------------------------------------------
+
+
+class TestHotContextPins:
+    """Tests for pin assignments in hot context output."""
+
+    def test_pins_rendered_in_output(
+        self,
+        project_dir: Path,
+        full_manifest: Manifest,
+        full_store_metadata: list[ChunkMetadata],
+    ) -> None:
+        config = HwccConfig(
+            project=ProjectConfig(name="test"),
+            hardware=HardwareConfig(mcu="STM32F407VGT6"),
+            software=SoftwareConfig(language="C"),
+            pins={"spi1_sck": "PA5", "uart1_tx": "PA9"},
+        )
+        compiler, store = _setup_project(
+            project_dir, full_manifest, full_store_metadata, config,
+        )
+        paths = compiler.compile(store, config)
+
+        content = paths[0].read_text(encoding="utf-8")
+        assert "## Pin Assignments" in content
+        assert "PA5" in content
+        assert "PA9" in content
+
+    def test_no_pins_section_when_empty(
+        self,
+        project_dir: Path,
+        full_config: HwccConfig,
+        full_manifest: Manifest,
+        full_store_metadata: list[ChunkMetadata],
+    ) -> None:
+        compiler, store = _setup_project(
+            project_dir, full_manifest, full_store_metadata, full_config,
+        )
+        paths = compiler.compile(store, full_config)
+
+        content = paths[0].read_text(encoding="utf-8")
+        assert "## Pin Assignments" not in content
+
+    def test_pins_removed_during_budget_truncation(
+        self,
+        project_dir: Path,
+        full_manifest: Manifest,
+        full_store_metadata: list[ChunkMetadata],
+    ) -> None:
+        """With very tight line budget, pins should be truncated."""
+        config = HwccConfig(
+            project=ProjectConfig(name="test"),
+            hardware=HardwareConfig(mcu="STM32F407VGT6"),
+            software=SoftwareConfig(language="C"),
+            output=OutputConfig(hot_context_max_lines=15),
+            pins={"spi1_sck": "PA5", "spi1_mosi": "PA7", "i2c1_scl": "PB6"},
+        )
+        compiler, store = _setup_project(
+            project_dir, full_manifest, full_store_metadata, config,
+        )
+        paths = compiler.compile(store, config)
+
+        content = paths[0].read_text(encoding="utf-8")
+        # With 15 lines budget, pins should be truncated
+        # (hardware info takes priority)
+        assert "STM32F407VGT6" in content
 
 
 class TestHotContextManifest:

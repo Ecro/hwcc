@@ -4,6 +4,15 @@
 {{ peripheral_description }}
 
 {% endif %}
+{% if peripheral_pins %}
+## Pin Assignments
+| Signal | Pin |
+|--------|-----|
+{% for name, pin in peripheral_pins %}
+| {{ name }} | {{ pin }} |
+{% endfor %}
+
+{% endif %}
 {% if register_map %}
 ## Register Map
 

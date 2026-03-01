@@ -407,6 +407,13 @@ class TestCompileContext:
         assert ctx.bootloader == "U-Boot 2024.01"
         assert ctx.distro == "Yocto kirkstone"
 
+    def test_from_config_with_pins(self):
+        config = HwccConfig(
+            pins={"spi1_sck": "PA5", "uart1_tx": "PA9"},
+        )
+        ctx = CompileContext.from_config(config)
+        assert ctx.pin_assignments == (("spi1_sck", "PA5"), ("uart1_tx", "PA9"))
+
     def test_from_config_defaults(self):
         ctx = CompileContext.from_config(HwccConfig())
         assert ctx.project_name == ""
@@ -416,6 +423,8 @@ class TestCompileContext:
         assert ctx.documents == ()
         assert ctx.peripherals == ()
         assert ctx.errata == ()
+        assert ctx.pin_assignments == ()
+        assert ctx.peripheral_pins == ()
 
     def test_frozen(self):
         ctx = CompileContext()
