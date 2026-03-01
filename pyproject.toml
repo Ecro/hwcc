@@ -48,8 +48,8 @@ dev = [
 hwcc = "hwcc.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/noelgraf/hwcc"
-Repository = "https://github.com/noelgraf/hwcc"
+Homepage = "https://github.com/Ecro/hwcc"
+Repository = "https://github.com/Ecro/hwcc"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/hwcc"]
