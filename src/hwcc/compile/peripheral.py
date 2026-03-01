@@ -71,10 +71,8 @@ class PeripheralContextCompiler(BaseCompiler):
         try:
             self._peripherals_dir.mkdir(parents=True, exist_ok=True)
 
-            # Fetch all chunks once, partition by doc_type
-            all_chunks = store.get_chunks()
-            svd_chunks = [c for c in all_chunks if c.metadata.doc_type == "svd"]
-            non_svd_chunks = [c for c in all_chunks if c.metadata.doc_type != "svd"]
+            # Fetch chunks by doc_type to avoid loading everything into memory
+            svd_chunks = store.get_chunks(where={"doc_type": "svd"})
 
             if not svd_chunks:
                 logger.info("No SVD documents indexed, skipping peripheral compilation")
@@ -96,6 +94,9 @@ class PeripheralContextCompiler(BaseCompiler):
             name_counts: dict[str, int] = {}
             for name, _chip in peripherals:
                 name_counts[name] = name_counts.get(name, 0) + 1
+
+            # Load non-SVD chunks for cross-document enrichment
+            non_svd_chunks = store.get_chunks(where={"doc_type": {"$ne": "svd"}})
 
             # Generate context file per peripheral
             base_context = CompileContext.from_config(config)

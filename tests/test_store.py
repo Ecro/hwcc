@@ -453,6 +453,67 @@ class TestChromaStoreGetChunkMetadata:
 # --- Error Handling Tests ---
 
 
+class TestChromaStoreGetChunks:
+    def test_get_chunks_no_filter_returns_all(self, tmp_path: Path):
+        store = _make_store(tmp_path)
+        store.add(
+            [
+                _make_embedded_chunk(chunk_id="c1", doc_type="svd", content="SVD content"),
+                _make_embedded_chunk(chunk_id="c2", doc_type="datasheet", content="DS content"),
+            ],
+            "doc1",
+        )
+        result = store.get_chunks()
+        assert len(result) == 2
+        assert all(isinstance(c, Chunk) for c in result)
+
+    def test_get_chunks_filter_by_doc_type(self, tmp_path: Path):
+        store = _make_store(tmp_path)
+        store.add(
+            [_make_embedded_chunk(chunk_id="c1", doc_type="svd", content="SVD reg map")],
+            "doc1",
+        )
+        store.add(
+            [_make_embedded_chunk(chunk_id="c2", doc_type="datasheet", content="DS text")],
+            "doc2",
+        )
+        result = store.get_chunks(where={"doc_type": "svd"})
+        assert len(result) == 1
+        assert result[0].content == "SVD reg map"
+        assert result[0].metadata.doc_type == "svd"
+
+    def test_get_chunks_empty_store(self, tmp_path: Path):
+        store = _make_store(tmp_path)
+        result = store.get_chunks()
+        assert result == []
+
+    def test_get_chunks_no_matches(self, tmp_path: Path):
+        store = _make_store(tmp_path)
+        store.add(
+            [_make_embedded_chunk(chunk_id="c1", doc_type="svd")],
+            "doc1",
+        )
+        result = store.get_chunks(where={"doc_type": "datasheet"})
+        assert result == []
+
+    def test_get_chunks_ne_operator(self, tmp_path: Path):
+        """$ne operator should exclude matching chunks."""
+        store = _make_store(tmp_path)
+        store.add(
+            [
+                _make_embedded_chunk(chunk_id="c1", doc_type="svd", content="SVD data"),
+                _make_embedded_chunk(chunk_id="c2", doc_type="datasheet", content="DS data"),
+                _make_embedded_chunk(chunk_id="c3", doc_type="refman", content="RM data"),
+            ],
+            "doc1",
+        )
+        result = store.get_chunks(where={"doc_type": {"$ne": "svd"}})
+        assert len(result) == 2
+        doc_types = {c.metadata.doc_type for c in result}
+        assert "svd" not in doc_types
+        assert doc_types == {"datasheet", "refman"}
+
+
 class TestChromaStoreErrors:
     def test_add_wraps_chromadb_errors(self, tmp_path: Path):
         """Mismatched embedding dimensions should raise StoreError."""

@@ -89,6 +89,34 @@ class TestProviderRegistry:
         assert not registry.has_provider("parser", "ollama")
 
 
+class TestLazyAutoDiscovery:
+    """Registry auto-discovers built-in providers on first create() call."""
+
+    def test_default_registry_has_embedding_providers(self):
+        """default_registry should auto-discover embedding providers."""
+        from hwcc.registry import default_registry
+
+        # After auto-discovery, embedding providers should be available
+        assert default_registry.has_provider("embedding", "chromadb")
+        assert default_registry.has_provider("embedding", "ollama")
+        assert default_registry.has_provider("embedding", "openai")
+
+    def test_create_triggers_auto_discovery(self):
+        """default_registry.create() should work without explicit import."""
+        from hwcc.registry import default_registry
+
+        config = _mock_config()
+        # create() triggers _ensure_discovered(), which imports hwcc.embed
+        result = default_registry.create("embedding", "chromadb", config)
+        assert result is not None
+
+    def test_auto_discover_false_does_not_import(self):
+        """Registry with auto_discover=False should NOT auto-import."""
+        registry = ProviderRegistry(auto_discover=False)
+        with pytest.raises(PluginError, match="Unknown provider category"):
+            registry.create("embedding", "chromadb", _mock_config())
+
+
 def _mock_config() -> HwccConfig:
     from hwcc.config import HwccConfig
 

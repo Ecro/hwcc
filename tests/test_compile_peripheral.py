@@ -38,7 +38,7 @@ class FakeStore(BaseStore):
         self,
         query_embedding: list[float],
         k: int = 5,
-        where: dict[str, str] | None = None,
+        where: dict[str, str | dict[str, str]] | None = None,
     ) -> list[SearchResult]:
         return []
 
@@ -47,22 +47,29 @@ class FakeStore(BaseStore):
 
     def get_chunk_metadata(
         self,
-        where: dict[str, str] | None = None,
+        where: dict[str, str | dict[str, str]] | None = None,
     ) -> list[ChunkMetadata]:
         chunks = self.get_chunks(where)
         return [c.metadata for c in chunks]
 
     def get_chunks(
         self,
-        where: dict[str, str] | None = None,
+        where: dict[str, str | dict[str, str]] | None = None,
     ) -> list[Chunk]:
         if where is None:
             return list(self._chunks)
-        return [
-            c
-            for c in self._chunks
-            if all(getattr(c.metadata, key, None) == v for key, v in where.items())
-        ]
+        return [c for c in self._chunks if self._matches(c, where)]
+
+    @staticmethod
+    def _matches(chunk: Chunk, where: dict[str, object]) -> bool:
+        for key, val in where.items():
+            actual = getattr(chunk.metadata, key, None)
+            if isinstance(val, dict) and "$ne" in val:
+                if actual == val["$ne"]:
+                    return False
+            elif actual != val:
+                return False
+        return True
 
     def count(self) -> int:
         return len(self._chunks)
@@ -322,7 +329,7 @@ class TestPeripheralCompilerBasic:
         from hwcc.exceptions import CompileError as CE
 
         class BrokenStore(FakeStore):
-            def get_chunks(self, where: dict[str, str] | None = None) -> list[Chunk]:
+            def get_chunks(self, where: dict[str, str | dict[str, str]] | None = None) -> list[Chunk]:
                 msg = "connection lost"
                 raise RuntimeError(msg)
 

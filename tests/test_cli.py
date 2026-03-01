@@ -241,6 +241,52 @@ class TestCompile:
         assert "hot.md" in result.output
 
 
+class TestVerboseFlag:
+    """--verbose / -v sets logging level to DEBUG."""
+
+    def test_verbose_flag_accepted(self):
+        result = runner.invoke(app, ["--verbose", "version"])
+        assert result.exit_code == 0
+        assert __version__ in result.output
+
+    def test_short_verbose_flag_accepted(self):
+        result = runner.invoke(app, ["-v", "version"])
+        assert result.exit_code == 0
+        assert __version__ in result.output
+
+    def test_verbose_sets_debug_level(self, monkeypatch: pytest.MonkeyPatch):
+        """--verbose should set hwcc logging level to DEBUG."""
+        import logging
+
+        hwcc_logger = logging.getLogger("hwcc")
+        captured_level: list[int] = []
+        original_set = hwcc_logger.setLevel
+
+        def capture_set_level(level: int) -> None:
+            captured_level.append(level)
+            original_set(level)
+
+        monkeypatch.setattr(hwcc_logger, "setLevel", capture_set_level)
+        runner.invoke(app, ["--verbose", "version"])
+        assert logging.DEBUG in captured_level
+
+    def test_default_logging_level_is_warning(self, monkeypatch: pytest.MonkeyPatch):
+        """Without --verbose, hwcc logging level should be WARNING."""
+        import logging
+
+        hwcc_logger = logging.getLogger("hwcc")
+        captured_level: list[int] = []
+        original_set = hwcc_logger.setLevel
+
+        def capture_set_level(level: int) -> None:
+            captured_level.append(level)
+            original_set(level)
+
+        monkeypatch.setattr(hwcc_logger, "setLevel", capture_set_level)
+        runner.invoke(app, ["version"])
+        assert logging.WARNING in captured_level
+
+
 class TestStubCommands:
     """Stub commands are hidden from --help but still callable."""
 

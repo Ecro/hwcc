@@ -156,7 +156,7 @@ class HotContextCompiler(BaseCompiler):
             return []
 
         # Count SVD chunks per (peripheral, chip) for register_count.
-        # TODO(C3): Use filtered store query once BaseStore supports it.
+        # TODO: Use filtered store.get_chunk_metadata(where={"doc_type": "svd"}).
         svd_counts: dict[tuple[str, str], int] = {}
         seen: set[tuple[str, str]] = set()
         peripheral_keys: list[tuple[str, str]] = []

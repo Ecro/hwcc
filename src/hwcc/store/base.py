@@ -40,7 +40,7 @@ class BaseStore(ABC):
         self,
         query_embedding: list[float],
         k: int = 5,
-        where: dict[str, str] | None = None,
+        where: dict[str, str | dict[str, str]] | None = None,
     ) -> list[SearchResult]:
         """Search for similar chunks by embedding.
 
@@ -73,7 +73,7 @@ class BaseStore(ABC):
     @abstractmethod
     def get_chunk_metadata(
         self,
-        where: dict[str, str] | None = None,
+        where: dict[str, str | dict[str, str]] | None = None,
     ) -> list[ChunkMetadata]:
         """Get metadata for all chunks matching filters (no embedding needed).
 
@@ -94,7 +94,7 @@ class BaseStore(ABC):
     @abstractmethod
     def get_chunks(
         self,
-        where: dict[str, str] | None = None,
+        where: dict[str, str | dict[str, str]] | None = None,
     ) -> list[Chunk]:
         """Get chunks with content matching filters (no embedding needed).
 

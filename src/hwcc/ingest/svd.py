@@ -276,10 +276,10 @@ def _check_xml_safety(path: Path) -> None:
     Raises:
         ParseError: If the file contains unsafe XML constructs.
     """
-    # Note: A crafted file with >8KB of comments before the DTD could bypass
-    # this check. Full protection requires configuring lxml to disable
-    # external entity resolution (tracked as a future improvement).
-    _SAFETY_PROBE_SIZE = 8192
+    # Note: This heuristic reads the first 64KB. A crafted file could place
+    # DTD declarations beyond this window. Full protection requires
+    # configuring lxml to disable external entity resolution.
+    _SAFETY_PROBE_SIZE = 65536
     try:
         with path.open("r", encoding="utf-8", errors="ignore") as f:
             head = f.read(_SAFETY_PROBE_SIZE)

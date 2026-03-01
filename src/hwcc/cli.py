@@ -16,7 +16,6 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-import hwcc.embed  # noqa: F401 — triggers provider registration on default_registry
 from hwcc import __version__
 from hwcc.chunk import MarkdownChunker
 from hwcc.compile.hot_context import HotContextCompiler
@@ -47,6 +46,18 @@ app = typer.Typer(
     rich_markup_mode="rich",
 )
 console = Console()
+
+
+@app.callback()
+def _main_callback(
+    verbose: Annotated[
+        bool,
+        typer.Option("--verbose", "-v", help="Enable debug logging"),
+    ] = False,
+) -> None:
+    """Configure global options."""
+    level = logging.DEBUG if verbose else logging.WARNING
+    logging.getLogger("hwcc").setLevel(level)
 
 
 def _not_implemented(command: str) -> None:
