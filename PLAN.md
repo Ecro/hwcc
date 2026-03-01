@@ -35,7 +35,7 @@ All complete: file type detection, SVD parser (P0 — per-field reset values, ac
 
 → Detail: `docs/plans/PLAN_SVD_PARSER.md`, `PLAN_PDF_PARSER.md`, `PLAN_CHUNKING_ENGINE.md`, `PLAN_EMBEDDING_ENGINE.md`, `PLAN_CHROMADB_STORAGE.md`, `PLAN_BSP_DOMAIN_SUPPORT.md`, etc.
 
-### Phase 2: Context Compilation [ACTIVE]
+### Phase 2: Context Compilation [DONE]
 
 | # | Task | Status |
 |---|------|--------|
@@ -52,7 +52,7 @@ All complete: file type detection, SVD parser (P0 — per-field reset values, ac
 
 - [x] Wire `hwcc compile` CLI (task 2.9)
 - [x] Auto-compile on `hwcc add` (task 2.10)
-- [ ] Fix stale docs (CLAUDE.md, TECH_SPEC defaults)
+- [x] Fix stale docs (CLAUDE.md, TECH_SPEC defaults)
 - [ ] README with quickstart
 - [ ] PyPI publish (`pip install hwcc`)
 

@@ -69,7 +69,7 @@ Path ──▶ BaseParser.parse() ──▶ ParseResult
 | `BaseChunker` | `hwcc.chunk.base` | `chunk(result, config) → list[Chunk]` | [DONE] |
 | `BaseEmbedder` | `hwcc.embed.base` | `embed_chunks(chunks) → list[EmbeddedChunk]` | [DONE] |
 | `BaseStore` | `hwcc.store.base` | `add(chunks, doc_id) → int`, `search(...)`, `delete(...)` | [DONE] |
-| `BaseCompiler` | `hwcc.compile.base` | `compile(store, config) → list[Path]` | [DONE] (classes; CLI wiring pending task 2.9) |
+| `BaseCompiler` | `hwcc.compile.base` | `compile(store, config) → list[Path]` | [DONE] |
 
 ### Data Contracts (frozen dataclasses)
 
@@ -278,7 +278,7 @@ COMMANDS:
   hwcc add <path> [--type <type>] [--chip <chip>]  Add documents          [DONE]
   hwcc remove <doc_id|path>                        Remove document        [DONE]
   hwcc status                                      Show project status    [DONE]
-  hwcc compile [--target <tool>]                   Generate context files [ACTIVE]
+  hwcc compile [--target <tool>]                   Generate context files [DONE]
   hwcc search <query> [--top-k N]                  Search indexed docs    [PLANNED]
   hwcc context <peripheral|query> [--copy]         Retrieve context       [PLANNED]
   hwcc catalog [list|add] [--family <fam>] [chip]  Browse SVD catalog     [PLANNED]

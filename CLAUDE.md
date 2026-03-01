@@ -20,7 +20,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | **Chunk** | `BaseChunker` | `src/hwcc/chunk/base.py` | `ParseResult → list[Chunk]` | Done |
 | **Embed** | `BaseEmbedder` | `src/hwcc/embed/base.py` | `list[Chunk] → list[EmbeddedChunk]` | Done (3 providers) |
 | **Store** | `BaseStore` | `src/hwcc/store/base.py` | `list[EmbeddedChunk] → persisted` | Done (ChromaDB) |
-| **Compile** | `BaseCompiler` | `src/hwcc/compile/base.py` | `store queries → output files` | Classes done, CLI stub |
+| **Compile** | `BaseCompiler` | `src/hwcc/compile/base.py` | `store queries → output files` | Done |
 | **Serve** | (v0.3) | `src/hwcc/serve/` | MCP server | Not started |
 
 ### Parsers (5 built-in)
@@ -68,7 +68,7 @@ pip install -e ".[dev]"
 # Run CLI
 hwcc --help
 
-# Run tests (669 tests)
+# Run tests (675 tests)
 pytest tests/
 pytest tests/test_config.py -v          # Single test file
 pytest tests/test_ingest_pdf.py -k "test_table_extraction"  # Single test
@@ -83,7 +83,7 @@ ruff format src/ tests/
 
 ## Key Design Decisions
 
-- **Testable architecture**: Every pipeline stage has an ABC contract. `Pipeline` accepts mock providers via constructor injection. 669 tests verify all contracts.
+- **Testable architecture**: Every pipeline stage has an ABC contract. `Pipeline` accepts mock providers via constructor injection. 675 tests verify all contracts.
 - **Non-destructive output**: Context injected into CLAUDE.md/AGENTS.md between `<!-- BEGIN/END HWCC CONTEXT -->` markers only. Never touch user content outside markers.
 - **Incremental indexing**: SHA-256 content hashing via manifest.json. `hwcc add` skips unchanged files, only re-processes modified/new documents.
 - **LLM is optional**: 90% of functionality works without any LLM. Core parsing, chunking, embedding, and compilation are deterministic or use local models.
