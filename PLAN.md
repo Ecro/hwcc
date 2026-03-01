@@ -53,7 +53,7 @@ All complete: file type detection, SVD parser (P0 — per-field reset values, ac
 - [x] Wire `hwcc compile` CLI (task 2.9)
 - [x] Auto-compile on `hwcc add` (task 2.10)
 - [x] Fix stale docs (CLAUDE.md, TECH_SPEC defaults)
-- [ ] README with quickstart
+- [x] README with quickstart
 - [ ] PyPI publish (`pip install hwcc`)
 
 ---
