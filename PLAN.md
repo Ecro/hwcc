@@ -10,7 +10,7 @@
 ## Milestone Overview
 
 ```
-v0.1 MVP ──── Core loop works: hwcc add → hwcc compile → CLAUDE.md    [ACTIVE]
+v0.1 MVP ──── Core loop works: hwcc add → hwcc compile → CLAUDE.md    [SHIPPED]
 v0.2 Quality ─ Citations, pins, relevance scoring, SVD catalog, search [PLANNED]
 v0.3 MCP ──── MCP server + dynamic context serving                    [PLANNED]
 v1.0 Polish ── Integrations, docs, PyPI release                       [PLANNED]
@@ -54,7 +54,7 @@ All complete: file type detection, SVD parser (P0 — per-field reset values, ac
 - [x] Auto-compile on `hwcc add` (task 2.10)
 - [x] Fix stale docs (CLAUDE.md, TECH_SPEC defaults)
 - [x] README with quickstart
-- [ ] PyPI publish (`pip install hwcc`)
+- [x] PyPI publish (`pip install hwcc`)
 
 ---
 

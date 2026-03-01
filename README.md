@@ -7,15 +7,13 @@ AI coding tools already read everything in your repo — source code, Makefiles,
 ## Install
 
 ```bash
-pip install git+https://github.com/Ecro/hwcc.git
+pipx install hwcc
 ```
 
-Or install from source:
+Or with pip (in a virtual environment):
 
 ```bash
-git clone https://github.com/Ecro/hwcc.git
-cd hwcc
-pip install -e .
+pip install hwcc
 ```
 
 Requires Python 3.11+. No API keys needed — runs 100% locally by default.
