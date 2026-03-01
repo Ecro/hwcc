@@ -6,6 +6,7 @@ Typer-based command-line interface with Rich output formatting.
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
@@ -16,8 +17,12 @@ from rich.table import Table
 
 from hwcc import __version__
 from hwcc.chunk import MarkdownChunker
+from hwcc.compile.hot_context import HotContextCompiler
+from hwcc.compile.output import OutputCompiler
+from hwcc.compile.peripheral import PeripheralContextCompiler
+from hwcc.compile.templates import TARGET_REGISTRY
 from hwcc.config import load_config
-from hwcc.exceptions import HwccError
+from hwcc.exceptions import CompileError, HwccError, StoreError
 from hwcc.ingest import detect_file_type, get_parser
 from hwcc.manifest import (
     DocumentEntry,
@@ -48,6 +53,55 @@ def _not_implemented(command: str) -> None:
         f"[yellow]hwcc {command}[/yellow] is not yet implemented. Coming in a future release.",
     )
     raise typer.Exit(code=0)
+
+
+def _compile_project(pm: ProjectManager, target: str = "all") -> list[Path]:
+    """Run the compile pipeline: Hot → Peripheral → Output.
+
+    Args:
+        pm: Initialized ProjectManager.
+        target: Target tool name or "all".
+
+    Returns:
+        List of generated file paths.
+
+    Raises:
+        typer.Exit: On compile errors.
+    """
+    config = load_config(pm.config_path)
+
+    # Validate and filter targets
+    if target != "all":
+        if target not in TARGET_REGISTRY:
+            supported = ", ".join(sorted(TARGET_REGISTRY))
+            console.print(f"[red]Unknown target:[/red] {target!r}. Supported: {supported}")
+            raise typer.Exit(code=1)
+        config = replace(config, output=replace(config.output, targets=[target]))
+
+    generated: list[Path] = []
+
+    try:
+        store = ChromaStore(
+            persist_path=pm.rag_dir / "index",
+            collection_name=config.store.collection_name,
+        )
+
+        # 1. Hot context — must run first (Output reads hot.md)
+        hot = HotContextCompiler(pm.root)
+        generated.extend(hot.compile(store, config))
+
+        # 2. Peripheral context
+        periph = PeripheralContextCompiler(pm.root)
+        generated.extend(periph.compile(store, config))
+
+        # 3. Output files (CLAUDE.md, etc.)
+        out = OutputCompiler(pm.root)
+        generated.extend(out.compile(store, config))
+    except (CompileError, StoreError) as e:
+        console.print(f"[red]Compile error:[/red] {e}")
+        raise typer.Exit(code=1) from e
+
+    return generated
 
 
 @app.command()
@@ -187,6 +241,10 @@ def add(
         bool,
         typer.Option("--watch", "-w", help="Watch for changes"),
     ] = False,
+    no_compile: Annotated[
+        bool,
+        typer.Option("--no-compile", help="Skip auto-compile after adding"),
+    ] = False,
 ) -> None:
     """Add document(s) to the index."""
     logger = logging.getLogger(__name__)
@@ -309,6 +367,12 @@ def add(
         console.print(
             f"\n[green]Added {added_count} document(s)[/green] ({total_chunks} chunks total)"
         )
+        # Auto-compile after successful additions
+        if not no_compile:
+            console.print("\nCompiling context...")
+            generated = _compile_project(pm)
+            if generated:
+                console.print(f"[green]Compiled {len(generated)} file(s)[/green]")
     elif skipped_count > 0:
         console.print("\n[dim]No new documents to add.[/dim]")
 
@@ -364,7 +428,23 @@ def compile_cmd(
     ] = "all",
 ) -> None:
     """Regenerate all output context files."""
-    _not_implemented("compile")
+    pm = ProjectManager()
+    if not pm.is_initialized:
+        console.print("[yellow]No hwcc project found.[/yellow] Run [bold]hwcc init[/bold] first.")
+        raise typer.Exit(code=1)
+
+    generated = _compile_project(pm, target=target)
+
+    if generated:
+        console.print(f"\n[green]Compiled {len(generated)} file(s):[/green]")
+        for p in generated:
+            try:
+                rel = p.relative_to(pm.root)
+            except ValueError:
+                rel = p
+            console.print(f"  {rel}")
+    else:
+        console.print("[dim]Nothing to compile.[/dim]")
 
 
 @app.command()

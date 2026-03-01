@@ -172,13 +172,76 @@ class TestStatusWithDocuments:
         assert "Index" in result.output
 
 
-class TestStubCommands:
-    def test_compile_not_implemented(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+class TestCompile:
+    def test_compile_uninitialized_project(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(app, ["compile"])
-        assert result.exit_code == 0
-        assert "not yet implemented" in result.output
+        assert result.exit_code == 1
+        assert "No hwcc project found" in result.output
 
+    def test_compile_empty_project(
+        self, initialized_project: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.chdir(initialized_project)
+        result = runner.invoke(app, ["compile"])
+        assert result.exit_code == 0
+        # Should produce hot.md even with empty store (just config data)
+        hot_md = initialized_project / ".rag" / "context" / "hot.md"
+        assert hot_md.exists()
+
+    def test_compile_produces_output_files(
+        self, initialized_project: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.chdir(initialized_project)
+        result = runner.invoke(app, ["compile"])
+        assert result.exit_code == 0
+        # Output files for default targets should exist
+        assert (initialized_project / "CLAUDE.md").exists()
+        assert "Compiled" in result.output
+
+    def test_compile_single_target(
+        self, initialized_project: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.chdir(initialized_project)
+        result = runner.invoke(app, ["compile", "--target", "claude"])
+        assert result.exit_code == 0
+        # CLAUDE.md should exist
+        assert (initialized_project / "CLAUDE.md").exists()
+
+    def test_compile_output_has_markers(
+        self, initialized_project: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.chdir(initialized_project)
+        runner.invoke(app, ["compile"])
+        claude_md = initialized_project / "CLAUDE.md"
+        content = claude_md.read_text(encoding="utf-8")
+        assert "<!-- BEGIN HWCC CONTEXT" in content
+        assert "<!-- END HWCC CONTEXT -->" in content
+
+    def test_compile_non_destructive(
+        self, initialized_project: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.chdir(initialized_project)
+        # Write existing CLAUDE.md with user content
+        claude_md = initialized_project / "CLAUDE.md"
+        claude_md.write_text("# My Project\n\nUser content here.\n", encoding="utf-8")
+        runner.invoke(app, ["compile"])
+        content = claude_md.read_text(encoding="utf-8")
+        # User content preserved
+        assert "User content here." in content
+        # hwcc content appended
+        assert "<!-- BEGIN HWCC CONTEXT" in content
+
+    def test_compile_reports_generated_files(
+        self, initialized_project: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.chdir(initialized_project)
+        result = runner.invoke(app, ["compile"])
+        assert result.exit_code == 0
+        assert "hot.md" in result.output
+
+
+class TestStubCommands:
     def test_search_not_implemented(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(app, ["search", "SPI"])

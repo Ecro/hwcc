@@ -2,8 +2,8 @@
 
 > **Version**: 0.1.0-dev
 > **Date**: 2026-03-01
-> **Status**: Phase 2 active — core pipeline complete, compile CLI pending
-> **Tests**: 669 | **Source files**: 36 | **Parsers**: 5 (SVD, PDF, Markdown, Text, DTS)
+> **Status**: Phase 2 complete — core loop works end-to-end
+> **Tests**: 675 | **Source files**: 36 | **Parsers**: 5 (SVD, PDF, Markdown, Text, DTS)
 
 ---
 
@@ -43,15 +43,15 @@ All complete: file type detection, SVD parser (P0 — per-field reset values, ac
 | 2.2 | Peripheral context compiler (PeripheralContextCompiler) | [DONE] |
 | 2.3 | Jinja2 template system with user overrides | [DONE] |
 | 2.4 | Output generators (claude/codex/cursor/gemini/copilot) | [DONE] |
-| **2.9** | **Wire `hwcc compile` CLI to existing compiler classes** | **[TODO] — blocks v0.1** |
-| **2.10** | **Auto-compile after `hwcc add`** | **[TODO] — blocks v0.1** |
+| 2.9 | Wire `hwcc compile` CLI to existing compiler classes | [DONE] |
+| 2.10 | Auto-compile after `hwcc add` (with `--no-compile` opt-out) | [DONE] |
 
-→ Detail: `docs/plans/PLAN_HOT_CONTEXT.md`, `PLAN_PERIPHERAL_CONTEXT.md`, `PLAN_OUTPUT_GENERATORS.md`, `PLAN_TEMPLATE_SYSTEM.md`
+→ Detail: `docs/plans/PLAN_HOT_CONTEXT.md`, `PLAN_PERIPHERAL_CONTEXT.md`, `PLAN_OUTPUT_GENERATORS.md`, `PLAN_TEMPLATE_SYSTEM.md`, `PLAN_COMPILE_CLI.md`
 
 ### Ship Checklist
 
-- [ ] Wire `hwcc compile` CLI (task 2.9)
-- [ ] Auto-compile on `hwcc add` (task 2.10)
+- [x] Wire `hwcc compile` CLI (task 2.9)
+- [x] Auto-compile on `hwcc add` (task 2.10)
 - [ ] Fix stale docs (CLAUDE.md, TECH_SPEC defaults)
 - [ ] README with quickstart
 - [ ] PyPI publish (`pip install hwcc`)
