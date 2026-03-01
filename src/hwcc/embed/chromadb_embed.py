@@ -87,7 +87,7 @@ class ChromaDBEmbedder(BaseEmbedder):
 
         results: list[EmbeddedChunk] = []
         for chunk, vec in zip(chunks, vectors, strict=True):
-            results.append(EmbeddedChunk(chunk=chunk, embedding=tuple(vec)))
+            results.append(EmbeddedChunk(chunk=chunk, embedding=tuple(float(v) for v in vec)))
 
         if results and self._dimension is None:
             self._dimension = len(results[0].embedding)

@@ -15,6 +15,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+import hwcc.embed  # noqa: F401 — triggers provider registration on default_registry
 from hwcc import __version__
 from hwcc.chunk import MarkdownChunker
 from hwcc.compile.hot_context import HotContextCompiler
@@ -297,7 +298,7 @@ def add(
             continue
 
         # Determine effective doc_type and chip
-        effective_doc_type = doc_type if doc_type != "auto" else str(info.doc_type)
+        effective_doc_type = doc_type if doc_type != "auto" else info.doc_type.value
         effective_chip = chip or config.hardware.mcu
 
         # Check manifest for changes
