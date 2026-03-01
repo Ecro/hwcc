@@ -66,7 +66,7 @@ All complete: file type detection, SVD parser (P0 — per-field reset values, ac
 |---|------|-------------|
 | ~~2.5~~ | ~~Source provenance / citations~~ | ~~Inline `*Source: RM0090 §28.3.3, p.868*` per chunk~~ ✅ |
 | ~~2.6~~ | ~~Pin assignments in output~~ | ~~Render `[pins]` config in hot + peripheral context~~ ✅ |
-| 2.7 | Relevance-scored chunk selection | Keyword-overlap scoring (deterministic, -26.2% tokens) |
+| ~~2.7~~ | ~~Relevance-scored chunk selection~~ | ~~Keyword-overlap scoring (deterministic, -26.2% tokens)~~ ✅ |
 | 2.8 | Usage pattern extraction | `content_type == "config_procedure"` → "Usage Patterns" section |
 | 1.13 | SVD catalog | `hwcc catalog list/add` — 300+ MCUs from cmsis-svd, zero-config |
 | 3.6 | CLI search (`hwcc search`) | Hybrid vector + keyword search with Rich output |

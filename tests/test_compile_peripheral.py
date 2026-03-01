@@ -923,6 +923,111 @@ class TestCitationsInOutput:
 
 
 # ---------------------------------------------------------------------------
+# Tests: Relevance-scored chunk selection
+# ---------------------------------------------------------------------------
+
+
+class TestRelevanceScoredSelection:
+    """Tests verifying relevance scoring integration in peripheral compiler."""
+
+    def test_high_relevance_chunk_preferred(
+        self,
+        project_dir: Path,
+        config: HwccConfig,
+    ) -> None:
+        """High-relevance non-SVD chunks appear before low-relevance ones."""
+        svd = _make_chunk(
+            "svd_0000",
+            "## SPI1\n\n**Base Address:** `0x40013000`\n"
+            "**Description:** Serial peripheral interface\n\n"
+            "### Registers\n\n| CR1 | 0x00 | Control |",
+            section_path="STM32F407 Register Map > SPI1",
+        )
+        # Low-relevance: mentions SPI1 in section_path but content is about GPIO
+        low = _make_chunk(
+            "ds_0001",
+            "GPIO port configuration and pin multiplexing overview",
+            doc_type="datasheet",
+            section_path="STM32F407 > SPI1 > Overview",
+        )
+        # High-relevance: mentions SPI, CR1, serial in content
+        high = _make_chunk(
+            "ds_0002",
+            "SPI1 serial communication using CR1 control configuration",
+            doc_type="datasheet",
+            section_path="STM32F407 > SPI1 > Configuration",
+        )
+
+        store = FakeStore([svd, low, high])
+        compiler = PeripheralContextCompiler(project_dir)
+        paths = compiler.compile(store, config)
+
+        content = paths[0].read_text(encoding="utf-8")
+        # High-relevance chunk content should appear before low-relevance
+        high_pos = content.find("serial communication")
+        low_pos = content.find("pin multiplexing")
+        assert high_pos != -1, "High-relevance content should be present"
+        assert high_pos < low_pos or low_pos == -1
+
+    def test_irrelevant_chunk_excluded(
+        self,
+        project_dir: Path,
+        config: HwccConfig,
+    ) -> None:
+        """Chunks with zero keyword overlap are excluded."""
+        svd = _make_chunk(
+            "svd_0000",
+            "## USART1\n\n**Base Address:** `0x40011000`\n"
+            "**Description:** Universal synchronous asynchronous receiver transmitter\n\n"
+            "### Registers\n\n"
+            "| CR1 | 0x00 | Control |\n"
+            "| BRR | 0x08 | Baud rate |\n"
+            "| SR | 0x00 | Status |",
+            section_path="STM32F407 Register Map > USART1",
+        )
+        # Completely irrelevant content with USART1 in section_path only
+        irrelevant = _make_chunk(
+            "ds_0001",
+            "Analog watchdog comparator threshold voltage levels",
+            doc_type="datasheet",
+            section_path="STM32F407 > USART1 > Misc",
+        )
+
+        store = FakeStore([svd, irrelevant])
+        compiler = PeripheralContextCompiler(project_dir)
+        paths = compiler.compile(store, config)
+
+        content = paths[0].read_text(encoding="utf-8")
+        assert "watchdog comparator" not in content
+
+    def test_backward_compat_no_register_map(
+        self,
+        project_dir: Path,
+        config: HwccConfig,
+    ) -> None:
+        """Scoring works even with minimal SVD data (name-only keywords)."""
+        svd = _make_chunk(
+            "svd_0000",
+            "## TIM2\n\n**Base Address:** `0x40000000`",
+            section_path="STM32F407 Register Map > TIM2",
+        )
+        detail = _make_chunk(
+            "ds_0001",
+            "TIM2 timer counter configuration and prescaler setup",
+            doc_type="datasheet",
+            section_path="STM32F407 > TIM2 > Config",
+        )
+
+        store = FakeStore([svd, detail])
+        compiler = PeripheralContextCompiler(project_dir)
+        paths = compiler.compile(store, config)
+
+        content = paths[0].read_text(encoding="utf-8")
+        # "tim2" keyword from name alone should match
+        assert "timer counter" in content
+
+
+# ---------------------------------------------------------------------------
 # Tests: FakeStore.get_chunks()
 # ---------------------------------------------------------------------------
 

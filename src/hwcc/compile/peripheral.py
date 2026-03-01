@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from hwcc.compile.base import BaseCompiler
 from hwcc.compile.citations import build_title_map, format_citation
 from hwcc.compile.context import CompileContext
+from hwcc.compile.relevance import build_peripheral_keywords, rank_chunks
 from hwcc.compile.templates import TemplateEngine
 from hwcc.exceptions import CompileError, ManifestError
 from hwcc.manifest import load_manifest
@@ -111,7 +112,10 @@ class PeripheralContextCompiler(BaseCompiler):
                 register_map = self._extract_register_map(name, svd_chunks, chip)
                 description = self._extract_description(register_map)
                 details = self._gather_peripheral_details(
-                    name, non_svd_chunks, chip, title_map=title_map,
+                    name, non_svd_chunks, chip,
+                    title_map=title_map,
+                    register_map=register_map,
+                    description=description,
                 )
 
                 # Add SVD source citation to register map (one per unique doc_id)
@@ -271,12 +275,18 @@ class PeripheralContextCompiler(BaseCompiler):
         non_svd_chunks: list[Chunk],
         chip: str = "",
         title_map: dict[str, str] | None = None,
+        register_map: str = "",
+        description: str = "",
     ) -> str:
         """Gather additional details about a peripheral from non-SVD documents.
 
         Matches peripheral name against individual path elements in
         section_path (case-insensitive, exact element match) to avoid
         false positives like ``SPI1`` matching ``SPI10``.
+
+        Chunks are ranked by keyword-overlap relevance using terms
+        derived from the peripheral name, SVD register map, and
+        description.  Low-relevance chunks are filtered out.
 
         When ``chip`` is provided, only chunks for that chip are included.
         When ``title_map`` is provided, inline citations are appended.
@@ -288,6 +298,8 @@ class PeripheralContextCompiler(BaseCompiler):
             non_svd_chunks: All non-SVD chunks from the store.
             chip: Optional chip filter for multi-chip disambiguation.
             title_map: Optional doc_id to title mapping for citations.
+            register_map: SVD register map content for keyword extraction.
+            description: Peripheral description for keyword extraction.
 
         Returns:
             Concatenated detail content with optional citations, or empty string.
@@ -298,8 +310,8 @@ class PeripheralContextCompiler(BaseCompiler):
             if self._section_path_mentions_peripheral(c.metadata.section_path, peripheral_name)
             and (not chip or c.metadata.chip == chip)
         ]
-        relevant.sort(key=lambda c: c.chunk_id)
-        relevant = relevant[:_MAX_DETAIL_CHUNKS]
+        keywords = build_peripheral_keywords(peripheral_name, register_map, description)
+        relevant = rank_chunks(relevant, keywords, max_chunks=_MAX_DETAIL_CHUNKS)
 
         if not relevant:
             return ""

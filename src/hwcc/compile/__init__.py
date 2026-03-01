@@ -12,6 +12,11 @@ from hwcc.compile.context import (
 from hwcc.compile.hot_context import HotContextCompiler
 from hwcc.compile.output import OutputCompiler
 from hwcc.compile.peripheral import PeripheralContextCompiler
+from hwcc.compile.relevance import (
+    build_peripheral_keywords,
+    rank_chunks,
+    score_chunk_relevance,
+)
 from hwcc.compile.templates import TARGET_REGISTRY, TemplateEngine
 
 __all__ = [
@@ -26,6 +31,9 @@ __all__ = [
     "PeripheralSummary",
     "TargetInfo",
     "TemplateEngine",
+    "build_peripheral_keywords",
     "build_title_map",
     "format_citation",
+    "rank_chunks",
+    "score_chunk_relevance",
 ]
