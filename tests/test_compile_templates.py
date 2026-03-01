@@ -377,10 +377,29 @@ class TestCompileContext:
         assert ctx.hwcc_version == "0.1.0"
         assert ctx.generated_at  # Should have a timestamp
 
+    def test_from_config_bsp_fields(self):
+        config = HwccConfig(
+            hardware=HardwareConfig(
+                soc="i.MX8M Plus", soc_family="i.MX8", board="Custom Board",
+            ),
+            software=SoftwareConfig(
+                kernel="linux-6.6", bootloader="U-Boot 2024.01", distro="Yocto kirkstone",
+            ),
+        )
+        ctx = CompileContext.from_config(config)
+        assert ctx.soc == "i.MX8M Plus"
+        assert ctx.soc_family == "i.MX8"
+        assert ctx.board == "Custom Board"
+        assert ctx.kernel == "linux-6.6"
+        assert ctx.bootloader == "U-Boot 2024.01"
+        assert ctx.distro == "Yocto kirkstone"
+
     def test_from_config_defaults(self):
         ctx = CompileContext.from_config(HwccConfig())
         assert ctx.project_name == ""
         assert ctx.mcu == ""
+        assert ctx.soc == ""
+        assert ctx.kernel == ""
         assert ctx.documents == ()
         assert ctx.peripherals == ()
         assert ctx.errata == ()

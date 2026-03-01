@@ -267,12 +267,20 @@ architecture = "Cortex-M4"
 clock_mhz = 168
 flash_kb = 1024
 ram_kb = 192
+# BSP projects use soc/board instead of (or alongside) mcu:
+# soc = "i.MX8M Plus"
+# soc_family = "i.MX8"
+# board = "Custom Board"
 
 [software]
 rtos = "FreeRTOS 10.5.1"
 hal = "STM32 HAL v1.27.1"
 language = "C"
 build_system = "CMake"
+# BSP projects add kernel/bootloader/distro:
+# kernel = "linux-6.6"
+# bootloader = "U-Boot 2024.01"
+# distro = "Yocto kirkstone"
 
 [pins]
 spi1_sck = "PA5"
@@ -342,7 +350,7 @@ Input file → detect type → route to parser
 Supported types:
 ├── .pdf          → PDF parser (PyMuPDF + pdfplumber for tables)
 ├── .svd          → CMSIS-SVD parser (cmsis-svd library)
-├── .dts / .dtsi  → Device tree parser
+├── .dts / .dtsi  → Device tree parser (compatible string extraction)
 ├── .h / .c       → C code parser (tree-sitter)
 ├── .rs           → Rust code parser (tree-sitter)
 ├── .md           → Markdown passthrough (normalize only)
@@ -608,8 +616,9 @@ Never guess register addresses. Always verify against indexed documentation.
 hwcc — Context Compiler for Embedded Projects
 
 COMMANDS:
-  hwcc init [--chip <mcu>] [--rtos <rtos>]
+  hwcc init [--chip <mcu>] [--soc <soc>] [--rtos <rtos>]
       Initialize .rag/ in current project. Auto-detects SVD/config files.
+      Use --soc for Embedded Linux / BSP projects.
 
   hwcc add <path> [--type <type>] [--chip <chip>] [--watch]
       Add document(s) to the index. Incremental — skips unchanged files.

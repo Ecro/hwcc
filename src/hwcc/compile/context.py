@@ -86,12 +86,18 @@ class CompileContext:
     clock_mhz: int = 0
     flash_kb: int = 0
     ram_kb: int = 0
+    soc: str = ""
+    soc_family: str = ""
+    board: str = ""
 
     # From config — software
     rtos: str = ""
     hal: str = ""
     language: str = "C"
     build_system: str = ""
+    kernel: str = ""
+    bootloader: str = ""
+    distro: str = ""
 
     # From config — conventions
     register_access: str = ""
@@ -130,10 +136,16 @@ class CompileContext:
             clock_mhz=config.hardware.clock_mhz,
             flash_kb=config.hardware.flash_kb,
             ram_kb=config.hardware.ram_kb,
+            soc=config.hardware.soc,
+            soc_family=config.hardware.soc_family,
+            board=config.hardware.board,
             rtos=config.software.rtos,
             hal=config.software.hal,
             language=config.software.language,
             build_system=config.software.build_system,
+            kernel=config.software.kernel,
+            bootloader=config.software.bootloader,
+            distro=config.software.distro,
             register_access=config.conventions.register_access,
             error_handling=config.conventions.error_handling,
             naming=config.conventions.naming,

@@ -11,8 +11,23 @@
 {% if ram_kb %}- **RAM**: {{ ram_kb }}KB
 {% endif %}
 {% endif %}
-{% if rtos or hal or build_system %}
+{% if soc %}
+## Target SoC
+- **SoC**: {{ soc }}{% if architecture %} ({{ architecture }}){% endif %}
+
+{% if soc_family %}- **Family**: {{ soc_family }}
+{% endif %}
+{% if board %}- **Board**: {{ board }}
+{% endif %}
+{% endif %}
+{% if rtos or hal or build_system or kernel or bootloader or distro %}
 ## Software Stack
+{% if kernel %}- **Kernel**: {{ kernel }}
+{% endif %}
+{% if bootloader %}- **Bootloader**: {{ bootloader }}
+{% endif %}
+{% if distro %}- **Distribution**: {{ distro }}
+{% endif %}
 {% if rtos %}- **RTOS**: {{ rtos }}
 {% endif %}
 {% if hal %}- **HAL**: {{ hal }}

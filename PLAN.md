@@ -183,6 +183,14 @@ hwcc status
   - Replace hardcoded `"---"` in `_render_field_table()` with computed hex values
   - See TECH_SPEC.md §5.5
 
+- [x] **1.15** Device tree parser + BSP config support
+  - `DeviceTreeParser` for .dts/.dtsi files — thin parser that preserves DTS as-is, extracts compatible strings for metadata, detects SoC from vendor prefixes (25+ SoC families)
+  - Added BSP config fields: `soc`, `soc_family`, `board` in `[hardware]`; `kernel`, `bootloader`, `distro` in `[software]`
+  - Updated `CompileContext` and `hot_context.md.j2` template with conditional BSP sections (Target SoC, Linux Stack)
+  - Registered as `"device_tree"` parser — `hwcc add board.dts` now works
+  - 33 unit tests, all passing
+  - Moved from Phase 5 task 5.3 — implemented early as strategic BSP differentiator
+
 - [ ] **1.13** `[P1]` Pre-built SVD catalog via cmsis-svd *(Embedder)*
   - `hwcc catalog list` — enumerate bundled SVD files from cmsis-svd library (300+ MCUs)
   - `hwcc catalog list --family STM32` — filter by vendor/family
@@ -451,10 +459,7 @@ hwcc add --watch docs/ &   # Background watcher
   - STM32 pin alternate function database
   - **Hardware relationship metadata** *(moved from core — vendor-specific)*: infer bus membership (APB1/APB2/AHB) from STM32 memory map, DMA channel mappings, IRQ assignments. Render "Hardware Configuration" section in peripheral context. This logic is vendor-specific and belongs in the plugin, not hwcc core.
 
-- [ ] **5.3** Device tree parser
-  - Parse .dts / .dtsi files
-  - Extract: nodes, compatible strings, properties, reg addresses
-  - Output: structured device tree context
+- [x] **5.3** Device tree parser *(moved to Phase 1, task 1.15 — done)*
 
 - [ ] **5.4** C/H header parser — **structured API tables** *(EmbedGenius §6)*
   - tree-sitter based

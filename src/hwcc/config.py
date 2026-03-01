@@ -62,6 +62,9 @@ class HardwareConfig:
     clock_mhz: int = 0
     flash_kb: int = 0
     ram_kb: int = 0
+    soc: str = ""
+    soc_family: str = ""
+    board: str = ""
 
 
 @dataclass
@@ -72,6 +75,9 @@ class SoftwareConfig:
     hal: str = ""
     language: str = "C"
     build_system: str = ""
+    kernel: str = ""
+    bootloader: str = ""
+    distro: str = ""
 
 
 @dataclass
