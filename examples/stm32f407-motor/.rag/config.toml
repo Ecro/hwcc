@@ -1,0 +1,58 @@
+[project]
+name = "stm32f407-motor"
+description = "Brushless DC motor controller"
+
+[hardware]
+mcu = "STM32F407"
+mcu_family = ""
+architecture = ""
+clock_mhz = 0
+flash_kb = 0
+ram_kb = 0
+soc = ""
+soc_family = ""
+board = ""
+
+[software]
+rtos = ""
+hal = ""
+language = "C"
+build_system = ""
+kernel = ""
+bootloader = ""
+distro = ""
+
+[conventions]
+register_access = ""
+error_handling = ""
+naming = ""
+
+[chunk]
+max_tokens = 512
+overlap_tokens = 50
+min_tokens = 50
+
+[embedding]
+model = "all-MiniLM-L6-v2"
+provider = "chromadb"
+api_key_env = ""
+base_url = ""
+batch_size = 64
+
+[store]
+provider = "chromadb"
+collection_name = "hwcc"
+
+[llm]
+provider = "ollama"
+model = "llama3.2"
+api_key_env = ""
+
+[output]
+targets = [
+    "claude",
+    "codex",
+    "cursor",
+    "gemini",
+]
+hot_context_max_lines = 120

@@ -148,26 +148,37 @@ class HotContextCompiler(BaseCompiler):
         return summaries
 
     def _gather_peripherals(self, store: BaseStore) -> list[PeripheralSummary]:
-        """Extract unique peripheral names from store metadata."""
+        """Extract unique peripheral names and register counts from store metadata."""
         try:
             all_metadata = store.get_chunk_metadata()
         except StoreError:
             logger.warning("Could not query store metadata, skipping peripheral data")
             return []
 
-        # Collect unique peripherals by (name, chip) to handle multi-chip projects
+        # Count SVD chunks per (peripheral, chip) for register_count.
+        # TODO(C3): Use filtered store query once BaseStore supports it.
+        svd_counts: dict[tuple[str, str], int] = {}
         seen: set[tuple[str, str]] = set()
-        peripherals: list[PeripheralSummary] = []
+        peripheral_keys: list[tuple[str, str]] = []
+
         for meta in all_metadata:
+            if not meta.peripheral:
+                continue
             key = (meta.peripheral, meta.chip)
-            if meta.peripheral and key not in seen:
+            if key not in seen:
                 seen.add(key)
-                peripherals.append(
-                    PeripheralSummary(
-                        name=meta.peripheral,
-                        chip=meta.chip,
-                    )
-                )
+                peripheral_keys.append(key)
+            if meta.doc_type == "svd":
+                svd_counts[key] = svd_counts.get(key, 0) + 1
+
+        peripherals = [
+            PeripheralSummary(
+                name=name,
+                chip=chip,
+                register_count=svd_counts.get((name, chip), 0),
+            )
+            for name, chip in peripheral_keys
+        ]
 
         # Sort alphabetically for stable output
         peripherals.sort(key=lambda p: p.name)

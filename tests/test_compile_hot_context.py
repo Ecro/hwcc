@@ -376,6 +376,26 @@ class TestHotContextContent:
         # SPI1 has 3 chunks in fixture but should appear only once in output
         assert content.count("SPI1") == 1
 
+    def test_peripheral_register_count(
+        self,
+        project_dir: Path,
+        full_config: HwccConfig,
+        full_manifest: Manifest,
+        full_store_metadata: list[ChunkMetadata],
+    ):
+        """Each peripheral should show its SVD chunk count as register_count."""
+        compiler, store = _setup_project(
+            project_dir,
+            full_manifest,
+            full_store_metadata,
+            full_config,
+        )
+        compiler.compile(store, full_config)
+        content = (project_dir / ".rag" / "context" / "hot.md").read_text()
+        # Fixture has 3 SVD chunks per peripheral — count should render in output
+        # Template renders: "- **SPI1** (3 registers)"
+        assert "3 registers" in content
+
     def test_multi_chip_documents_shown(
         self,
         project_dir: Path,

@@ -272,6 +272,15 @@ class TestTargetTemplates:
         result = engine.render_target("codex", full_context)
         assert full_context.hot_context in result
 
+    def test_each_target_renders_differently(self, engine, full_context):
+        """Each target template should produce distinct output."""
+        targets = ["claude", "codex", "cursor", "gemini", "copilot"]
+        outputs = {t: engine.render_target(t, full_context) for t in targets}
+        unique_outputs = set(outputs.values())
+        assert len(unique_outputs) == len(outputs), (
+            "Some target templates produce identical output"
+        )
+
 
 # ---------------------------------------------------------------------------
 # render_target and target registry
@@ -380,10 +389,14 @@ class TestCompileContext:
     def test_from_config_bsp_fields(self):
         config = HwccConfig(
             hardware=HardwareConfig(
-                soc="i.MX8M Plus", soc_family="i.MX8", board="Custom Board",
+                soc="i.MX8M Plus",
+                soc_family="i.MX8",
+                board="Custom Board",
             ),
             software=SoftwareConfig(
-                kernel="linux-6.6", bootloader="U-Boot 2024.01", distro="Yocto kirkstone",
+                kernel="linux-6.6",
+                bootloader="U-Boot 2024.01",
+                distro="Yocto kirkstone",
             ),
         )
         ctx = CompileContext.from_config(config)

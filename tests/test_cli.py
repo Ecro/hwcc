@@ -242,6 +242,8 @@ class TestCompile:
 
 
 class TestStubCommands:
+    """Stub commands are hidden from --help but still callable."""
+
     def test_search_not_implemented(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(app, ["search", "SPI"])
@@ -253,3 +255,29 @@ class TestStubCommands:
         result = runner.invoke(app, ["mcp"])
         assert result.exit_code == 0
         assert "not yet implemented" in result.output
+
+    def test_hidden_commands_not_in_help(self):
+        result = runner.invoke(app, ["--help"])
+        assert result.exit_code == 0
+        # Extract the Commands section from help output
+        output = result.output
+        commands_start = output.find("Commands")
+        assert commands_start != -1, "Commands section not found in help output"
+        commands_section = output[commands_start:]
+        # Working commands should appear in Commands section
+        assert "init" in commands_section
+        assert "add" in commands_section
+        assert "compile" in commands_section
+        assert "status" in commands_section
+        # Stub commands should be hidden from Commands section
+        assert "search" not in commands_section
+        assert "mcp" not in commands_section
+        # "context" appears in app description, so check it doesn't appear
+        # as a standalone command line in the commands listing
+        command_lines = [
+            line.strip().split()[0]
+            for line in commands_section.splitlines()
+            if line.strip() and not line.strip().startswith("─")
+        ]
+        assert "context" not in command_lines
+        assert "config" not in command_lines

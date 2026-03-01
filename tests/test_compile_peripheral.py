@@ -681,6 +681,25 @@ class TestRenderedOutput:
         content = paths[0].read_text(encoding="utf-8")
         assert "STM32F407VGT6" in content
 
+    def test_output_contains_peripheral_description_as_overview(
+        self,
+        project_dir: Path,
+        config: HwccConfig,
+        spi_chunks: list[Chunk],
+    ) -> None:
+        """SVD description should be extracted and rendered as overview text."""
+        store = FakeStore(spi_chunks)
+        compiler = PeripheralContextCompiler(project_dir)
+        paths = compiler.compile(store, config)
+
+        content = paths[0].read_text(encoding="utf-8")
+        # Description should appear before the Register Map section as overview
+        reg_map_pos = content.find("## Register Map")
+        desc_pos = content.find("Serial peripheral interface")
+        assert desc_pos != -1, "Description not found in output"
+        assert reg_map_pos != -1, "Register Map section not found"
+        assert desc_pos < reg_map_pos, "Description should appear before Register Map"
+
     def test_output_contains_register_map(
         self,
         project_dir: Path,

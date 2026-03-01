@@ -6,6 +6,7 @@ Typer-based command-line interface with Rich output formatting.
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -310,8 +311,6 @@ def add(
             skipped_count += 1
             continue
 
-        console.print(f"Processing [bold]{file_path.name}[/bold] ...")
-
         # Remove old chunks if re-indexing a changed document
         if manifest.get_document(doc_id) is not None:
             try:
@@ -329,11 +328,19 @@ def add(
                 store=store,
                 config=config,
             )
-            chunk_count = pipeline.process(
-                path=file_path,
-                doc_id=doc_id,
-                doc_type=effective_doc_type,
-                chip=effective_chip,
+            t0 = time.monotonic()
+            with console.status(f"Processing [bold]{file_path.name}[/bold] ...", spinner="dots"):
+                chunk_count = pipeline.process(
+                    path=file_path,
+                    doc_id=doc_id,
+                    doc_type=effective_doc_type,
+                    chip=effective_chip,
+                )
+            logger.info(
+                "Processed %s in %.1fs (%d chunks)",
+                file_path.name,
+                time.monotonic() - t0,
+                chunk_count,
             )
         except HwccError as e:
             console.print(f"  [red]Error processing {file_path.name}:[/red] {e}")
@@ -370,8 +377,8 @@ def add(
         )
         # Auto-compile after successful additions
         if not no_compile:
-            console.print("\nCompiling context...")
-            generated = _compile_project(pm)
+            with console.status("Compiling context...", spinner="dots"):
+                generated = _compile_project(pm)
             if generated:
                 console.print(f"[green]Compiled {len(generated)} file(s)[/green]")
     elif skipped_count > 0:
@@ -448,7 +455,7 @@ def compile_cmd(
         console.print("[dim]Nothing to compile.[/dim]")
 
 
-@app.command()
+@app.command(hidden=True)
 def context(
     query: Annotated[
         str | None,
@@ -467,7 +474,7 @@ def context(
     _not_implemented("context")
 
 
-@app.command()
+@app.command(hidden=True)
 def search(
     query: Annotated[str, typer.Argument(help="Search query")],
     top_k: Annotated[
@@ -479,7 +486,7 @@ def search(
     _not_implemented("search")
 
 
-@app.command()
+@app.command(hidden=True)
 def mcp(
     port: Annotated[
         int | None,
@@ -490,7 +497,7 @@ def mcp(
     _not_implemented("mcp")
 
 
-@app.command(name="config")
+@app.command(name="config", hidden=True)
 def config_cmd(
     key: Annotated[
         str | None,

@@ -111,6 +111,7 @@ class CompileContext:
 
     # Peripheral-specific (only for peripheral.md.j2)
     peripheral_name: str = ""
+    peripheral_description: str = ""
     register_map: str = ""
     peripheral_details: str = ""
 

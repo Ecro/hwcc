@@ -103,11 +103,13 @@ class PeripheralContextCompiler(BaseCompiler):
 
             for name, chip in peripherals:
                 register_map = self._extract_register_map(name, svd_chunks, chip)
+                description = self._extract_description(register_map)
                 details = self._gather_peripheral_details(name, non_svd_chunks, chip)
 
                 ctx = replace(
                     base_context,
                     peripheral_name=name,
+                    peripheral_description=description,
                     register_map=register_map,
                     peripheral_details=details,
                 )
@@ -256,3 +258,25 @@ class PeripheralContextCompiler(BaseCompiler):
         parts = section_path.split(" > ")
         needle = peripheral_name.lower()
         return any(needle == part.strip().lower() for part in parts)
+
+    @staticmethod
+    def _extract_description(register_map: str) -> str:
+        """Extract the peripheral description from SVD register map content.
+
+        Looks for the ``**Description:** <text>`` pattern in the first few
+        lines of the register map markdown.
+
+        Args:
+            register_map: Rendered register map markdown.
+
+        Returns:
+            The description text, or empty string if not found.
+        """
+        for line in register_map.splitlines()[:20]:
+            stripped = line.strip()
+            if stripped.startswith("**Description:**"):
+                return stripped.removeprefix("**Description:**").strip()
+
+        if register_map:
+            logger.debug("No **Description:** found in register map content")
+        return ""

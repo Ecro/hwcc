@@ -7,7 +7,15 @@ AI coding tools already read everything in your repo — source code, Makefiles,
 ## Install
 
 ```bash
-pip install hwcc
+pip install git+https://github.com/Ecro/hwcc.git
+```
+
+Or install from source:
+
+```bash
+git clone https://github.com/Ecro/hwcc.git
+cd hwcc
+pip install -e .
 ```
 
 Requires Python 3.11+. No API keys needed — runs 100% locally by default.
@@ -106,6 +114,14 @@ targets = ["claude", "codex", "cursor", "gemini"]
 ```
 
 Edit this file to tune what context gets generated.
+
+## Example Output
+
+See [`examples/stm32f407-motor/`](examples/stm32f407-motor/) for a complete sample project with pre-generated output. Key files:
+
+- [`CLAUDE.md`](examples/stm32f407-motor/CLAUDE.md) — User content preserved, hardware context injected between markers
+- [`peripherals/spi1.md`](examples/stm32f407-motor/.rag/context/peripherals/spi1.md) — Full SPI1 register map with bit-fields and reset values
+- [`peripherals/tim1.md`](examples/stm32f407-motor/.rag/context/peripherals/tim1.md) — TIM1 advanced timer registers
 
 ## How It Works
 
