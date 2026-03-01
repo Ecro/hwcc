@@ -207,11 +207,18 @@ class SvdParser(BaseParser):
         # Field detail tables (only for registers that have fields)
         for reg in registers:
             if reg.fields:
-                lines.extend(self._render_field_table(reg.name or "?", reg.fields))
+                lines.extend(
+                    self._render_field_table(reg.name or "?", reg.fields, reg.reset_value)
+                )
 
         return lines
 
-    def _render_field_table(self, register_name: str, fields: Sequence[SvdFieldItem]) -> list[str]:
+    def _render_field_table(
+        self,
+        register_name: str,
+        fields: Sequence[SvdFieldItem],
+        register_reset_value: int | None = None,
+    ) -> list[str]:
         """Render a field detail table for a register."""
         from cmsis_svd.model import SVDField
 
@@ -233,7 +240,10 @@ class SvdParser(BaseParser):
             bit_width = field.bit_width or 1
             bits = _format_bit_range(bit_offset, bit_width)
             access = _format_access(field.access)
-            reset = "—"
+            if register_reset_value is not None:
+                reset = _compute_field_reset(register_reset_value, bit_offset, bit_width)
+            else:
+                reset = "—"
             desc = (field.description or "").strip()
             lines.append(f"| {field.name} | {bits} | {access} | {reset} | {desc} |")
 
@@ -348,6 +358,26 @@ def _format_hex(value: int | None, width: int = 8) -> str:
     if value is None:
         return "—"
     return f"0x{value:0{width}X}"
+
+
+def _compute_field_reset(register_reset: int, bit_offset: int, bit_width: int) -> str:
+    """Compute and format a field's reset value from the register reset value.
+
+    Extracts the field's bits from the register-level reset value using:
+        field_reset = (register_reset >> bit_offset) & ((1 << bit_width) - 1)
+
+    See TECH_SPEC.md §5.5.
+    """
+    if bit_width <= 0:
+        logger.debug("Field with bit_width=%d, returning 0x0", bit_width)
+        return "0x0"
+    if bit_offset < 0 or bit_offset >= 64:
+        logger.debug("Field with out-of-range bit_offset=%d", bit_offset)
+        return "0x0"
+    mask = (1 << bit_width) - 1
+    value = (register_reset >> bit_offset) & mask
+    hex_width = max(1, (bit_width + 3) // 4)
+    return f"0x{value:0{hex_width}X}"
 
 
 def _format_bit_range(offset: int, width: int) -> str:

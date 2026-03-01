@@ -1,8 +1,8 @@
 # hwcc — Implementation Plan
 
-> **Version**: 0.1.0-draft
-> **Date**: 2026-02-27
-> **Status**: Draft — pending review
+> **Version**: 0.2.0-draft
+> **Date**: 2026-03-01
+> **Status**: Draft — updated with EmbedGenius + Embedder research findings
 
 ---
 
@@ -12,10 +12,13 @@ See TECH_SPEC.md §2 for full competitive landscape. These gaps have **zero comp
 
 | Priority | Gap | What to Ship | Addressed In |
 |----------|-----|-------------|-------------|
-| **P0** | SVD-first register context | Rock-solid SVD parser with bit fields, reset values, access types | Phase 1 (task 1.2) |
+| **P0** | SVD-first register context | Rock-solid SVD parser with bit fields, per-field reset values, access types | Phase 1 (task 1.2, 1.12) |
 | **P0** | Open-source HW context compiler | Working pipeline: add docs → get AI context | Phase 0 + 1 |
+| **P0** | Source provenance / citations | Every register address, timing value, procedure step cites the exact source document and page | Phase 2 (task 2.5) |
 | **P1** | Tool-agnostic multi-format output | CLAUDE.md + AGENTS.md + .cursorrules + MCP + clipboard from one compile | Phase 2 + 3 |
 | **P1** | Multi-vendor support | `hwcc add stm32.svd ti_power.pdf nxp_sensor.pdf` in one project | Phase 1 (per-doc `--chip` tag) |
+| **P1** | Zero-config SVD catalog | `hwcc catalog add STM32F407` — instant start from 300+ bundled MCUs | Phase 1 (task 1.13) |
+| **P1** | Rich peripheral context | 6-section peripheral files: pins, registers, usage patterns, API, errata, cited details | Phase 2 (tasks 2.5-2.8) |
 | **P2** | Errata cross-referencing | Inline errata warnings on affected registers | Phase 2 (task 2.2) |
 | **P2** | Hardware llms.txt standard | Define the format via our Jinja2 templates | Phase 2 (task 2.3) |
 
@@ -168,16 +171,40 @@ hwcc status
   - Embedding model info
   - Store size on disk
 
+- [x] **1.11** `[P1]` Hardware-domain content type taxonomy *(EmbedGenius §3)*
+  - Extend `MarkdownChunker._detect_content_type()` from 4 generic types to 12 hardware-aware types
+  - New types: `register_table`, `register_description`, `timing_spec`, `config_procedure`, `errata`, `pin_mapping`, `electrical_spec`, `api_reference`
+  - Pattern-based detection using compiled regex (no LLM needed, deterministic)
+  - Enables targeted retrieval during compilation and MCP search
+  - See TECH_SPEC.md §5.4 for full taxonomy
+
+- [x] **1.12** `[P1]` SVD per-field reset value computation *(Embedder)*
+  - Compute per-field reset values from register-level reset: `(reset >> offset) & mask`
+  - Replace hardcoded `"---"` in `_render_field_table()` with computed hex values
+  - See TECH_SPEC.md §5.5
+
+- [ ] **1.13** `[P1]` Pre-built SVD catalog via cmsis-svd *(Embedder)*
+  - `hwcc catalog list` — enumerate bundled SVD files from cmsis-svd library (300+ MCUs)
+  - `hwcc catalog list --family STM32` — filter by vendor/family
+  - `hwcc catalog add STM32F407` — auto-import SVD from catalog (zero-config UX)
+  - Uses `SVDParser.for_packaged_svd(vendor, filename)` from cmsis-svd
+  - Turns hwcc from "bring your own docs" to instant zero-config experience
+
+- [ ] **1.14** Document versioning in manifest *(Embedder)*
+  - Add `document_version` and `silicon_revision` fields to `DocumentEntry`
+  - Store version metadata passively — no interactive prompts (preserves scripting/CI compatibility)
+  - Enable revision-aware context rendering: "STM32F407 Rev Z (latest)"
+
 ### Deliverable
 ```bash
-hwcc add board.svd --chip STM32F407
-# → Parsed 43 peripherals, 892 registers          ← SVD FIRST (P0)
+hwcc catalog list --family STM32
+# → STM32F407, STM32F429, STM32H743, ... (47 chips)
+hwcc catalog add STM32F407
+# → Added STM32F407.svd from catalog (43 peripherals, 892 registers)
 hwcc add docs/STM32F407_datasheet.pdf --chip STM32F407
-# → Processing... 847 chunks indexed
-hwcc add docs/TPS65218_datasheet.pdf --chip TPS65218
-# → Processing... 312 chunks indexed (multi-vendor!)
+# → Processing... 847 chunks indexed (12 content types detected)
 hwcc status
-# → 3 documents (2 chips), 2,051 chunks, 1.1M tokens
+# → 2 documents (1 chip), 1,739 chunks, 0.9M tokens
 ```
 
 ---
@@ -220,29 +247,56 @@ hwcc status
   - Detect and preserve existing user content
   - **One compile → all formats.** This is what Embedder can't do.
 
-- [ ] **2.5** Implement `hwcc compile`
-  - Generate hot context
-  - Generate peripheral contexts
+- [ ] **2.5** `[P1]` Source provenance / inline citations *(Embedder)*
+  - Render `doc_id`, `section_path`, and `page` metadata alongside content in peripheral context
+  - Citation format: `*Source: RM0090 §28.3.3, p.868*`
+  - Every chunk in peripheral details gets a source annotation
+  - Register maps cite the SVD source file
+  - **Primary trust mechanism** — allows engineers to verify any claim against original docs
+
+- [ ] **2.6** `[P1]` Pin assignments in context output *(EmbedGenius §3)*
+  - Load `[pins]` config section into `CompileContext`
+  - Render "Pin Assignments" section in `hot_context.md.j2` (all pins)
+  - Filter pins per peripheral in `PeripheralContextCompiler` (e.g., "spi1_*" → SPI1)
+  - Render filtered "Pin Assignments" section in `peripheral.md.j2`
+
+- [ ] **2.7** `[P1]` Relevance-scored peripheral detail selection *(EmbedGenius §4)*
+  - Replace positional chunk selection (first 5 by chunk_id) with keyword-overlap scoring
+  - Score chunks by peripheral name frequency + hardware keyword matches (configuration, initialization, register, clock, DMA)
+  - Fully deterministic — no embedder dependency at compile time (preserves "compile is deterministic" guarantee)
+  - Sort by score descending, take top `_MAX_DETAIL_CHUNKS`
+  - Fall back to section_path matching when score is zero (backward compat)
+  - EmbedGenius showed 26.2% token reduction via relevance scoring; keyword scoring achieves ~80% of the benefit without breaking determinism
+
+- [ ] **2.8** `[P1]` Usage pattern extraction *(EmbedGenius §5)*
+  - Extract configuration/initialization procedure chunks for each peripheral
+  - Match by `content_type == "config_procedure"` (from task 1.11) or section_path keywords
+  - Render "Usage Patterns" section in `peripheral.md.j2`
+  - EmbedGenius showed +7.1% accuracy, +15% completion rate from usage tables
+
+- [ ] **2.9** Implement `hwcc compile`
+  - Generate hot context (with pins, citations, errata counts)
+  - Generate peripheral contexts (6-section structure: pins, registers, usage patterns, API ref, errata, details)
   - Generate all target output files
   - Report what was generated/updated
   - `--target` flag to compile for specific tool only
 
-- [ ] **2.6** Auto-compile on `hwcc add`
+- [ ] **2.10** Auto-compile on `hwcc add`
   - After adding new documents, auto-run compile
   - Can be disabled with `--no-compile` flag
 
 ### Deliverable
 ```bash
 hwcc compile
-# → Generated .rag/context/hot.md (118 lines)
-# → Generated .rag/context/peripherals/spi.md
-# → Generated .rag/context/peripherals/i2c.md
+# → Generated .rag/context/hot.md (118 lines, 7 pin assignments, 3 errata)
+# → Generated .rag/context/peripherals/spi1.md (6 sections, 4 citations)
+# → Generated .rag/context/peripherals/i2c1.md (6 sections, 2 citations)
 # → Updated CLAUDE.md (hardware section)
 # → Updated AGENTS.md
 # → Created .gemini/GEMINI.md
 # → Created .cursor/rules/hardware.mdc
 
-# Now Claude Code automatically has hardware context!
+# Now Claude Code automatically has hardware context with source citations!
 ```
 
 ---
@@ -296,6 +350,14 @@ hwcc compile
   - Hybrid search: vector similarity + keyword matching
   - Display results with Rich: source, page, relevance score
   - `--top-k` flag (default 5)
+
+- [ ] **3.7** Query decomposition for multi-peripheral search *(EmbedGenius §5)*
+  - Decompose complex queries into per-peripheral sub-queries
+  - Extract peripheral names from query via case-insensitive matching against known peripherals
+  - Extract operation keywords (init, read, write, configure, interrupt, DMA)
+  - Run parallel sub-searches, merge results with deduplication by chunk_id
+  - No LLM needed — simple regex + keyword extraction
+  - See TECH_SPEC.md §6.2 for design details
 
 ### Deliverable
 ```bash
@@ -387,16 +449,24 @@ hwcc add --watch docs/ &   # Background watcher
   - CubeMX .ioc file parser
   - STM32 errata database (bundled)
   - STM32 pin alternate function database
+  - **Hardware relationship metadata** *(moved from core — vendor-specific)*: infer bus membership (APB1/APB2/AHB) from STM32 memory map, DMA channel mappings, IRQ assignments. Render "Hardware Configuration" section in peripheral context. This logic is vendor-specific and belongs in the plugin, not hwcc core.
 
 - [ ] **5.3** Device tree parser
   - Parse .dts / .dtsi files
   - Extract: nodes, compatible strings, properties, reg addresses
   - Output: structured device tree context
 
-- [ ] **5.4** C/H header parser
+- [ ] **5.4** C/H header parser — **structured API tables** *(EmbedGenius §6)*
   - tree-sitter based
   - Extract: function signatures, struct definitions, enums, macros
   - Understand HAL patterns (function groups per peripheral)
+  - **Output structured API tables per peripheral** (not raw AST dumps):
+    - Table format: `(Function, Parameters, Returns, Description)`
+    - Group functions by peripheral via naming convention (`HAL_SPI_*`, `HAL_I2C_*`)
+    - Set `ChunkMetadata.peripheral` and `content_type = "api_reference"`
+    - Include typedefs/enums essential for the API (e.g., `SPI_HandleTypeDef`)
+  - Include API reference table in peripheral context alongside register map
+  - Design informed by EmbedGenius research: structured API tables directly improve coding accuracy
 
 - [ ] **5.5** Test suite
   - Unit tests for each parser
@@ -445,13 +515,31 @@ hwcc status
 | Milestone | Phases | Key Deliverable | Priority | Gaps Addressed |
 |-----------|--------|-----------------|----------|----------------|
 | **M0: Skeleton** | Phase 0 | `hwcc init`, `hwcc status` work | P0 | G1 |
-| **M1: Core Pipeline** | Phase 1 | `hwcc add` processes SVDs and PDFs | **P0** | **G1, G2, G5** |
-| **M2: Context Output** | Phase 2 | Auto-generates CLAUDE.md et al. | **P1** | **G3, G4, G6** |
-| **M3: MCP + Commands** | Phase 3 | MCP server + /hw slash commands | P1 | G3 |
+| **M1: Core Pipeline** | Phase 1 | `hwcc add` processes SVDs and PDFs, content type taxonomy, field reset values, SVD catalog | **P0** | **G1, G2, G5** |
+| **M2: Context Output** | Phase 2 | 6-section peripheral context with citations, pins, usage patterns, errata | **P1** | **G3, G4, G6** |
+| **M3: MCP + Commands** | Phase 3 | MCP server + /hw slash commands + query decomposition | P1 | G3 |
 | **M4: Universal** | Phase 4 | Clipboard, pipe, augment, watch | P1 | G3 |
-| **M5: Release** | Phase 5 | PyPI package, plugin system, docs | P1 | G1 |
+| **M5: Release** | Phase 5 | PyPI package, plugin system, C/H parser with API tables, docs | P1 | G1 |
 
-> **MVP = M0 + M1 + M2.** A working `hwcc add board.svd && hwcc compile` that produces CLAUDE.md with correct register maps fills the #1 market gap with zero competition.
+> **MVP = M0 + M1 + M2.** A working `hwcc add board.svd && hwcc compile` that produces CLAUDE.md with correct register maps, source citations, pin assignments, and usage patterns fills the #1 market gap with zero competition.
+
+---
+
+## Research References
+
+Improvements in this plan are informed by two external analyses:
+
+| Source | Type | Key Findings Applied |
+|--------|------|---------------------|
+| **EmbedGenius** (arXiv:2412.09058v2) | Academic paper — automated embedded IoT framework, 95.7% accuracy | Pin assignments (§3), relevance scoring via keyword overlap (§4, -26.2% tokens), content type taxonomy (§3), usage patterns (§5, +7.1% accuracy), API tables (§6), query decomposition (§5) |
+| **Embedder** (YC S25) | Commercial competitor — AI firmware IDE, 3000+ engineers | Source citations (#1 trust mechanism), per-field SVD reset values, SVD catalog (300+ MCUs), errata-to-register linking, document versioning |
+
+**Evaluated but rejected** (see Out of Scope for rationale):
+- ~~Hardware relationship inference~~ (Embedder) → vendor-specific, moved to plugin scope (task 5.2)
+- ~~Coding standard presets~~ (Embedder) → scope creep, `[conventions]` free-text is sufficient
+- ~~Embedding-based compile selection~~ (EmbedGenius §4) → replaced with deterministic keyword scoring to preserve "compile is deterministic" guarantee
+
+See `docs/plans/PLAN_EMBEDGENIUS_IMPROVEMENTS.md` for detailed implementation plan.
 
 ---
 
@@ -478,7 +566,9 @@ hwcc status
 - ~~Multi-chip project support~~ → **MOVED TO v1 SCOPE** (Gap G5: real projects need multi-vendor)
 - Fine-tuned embedding models
 - Knowledge graph / GraphRAG
-- Post-generation validation (RespCode's approach — we solve pre-generation instead)
+- Post-generation validation (RespCode's approach — we solve pre-generation instead. EmbedGenius's compile/flash validation loop also out of scope — hwcc is a context compiler, not a code generator.)
+- Coding standard presets (MISRA, AUTOSAR) — the existing `[conventions]` free-text fields are sufficient. Maintaining preset accuracy for 175+ MISRA rules is an ongoing burden with diminishing returns. Defer to v2 or community contribution.
+- Hardware relationship inference in core (bus/DMA/IRQ) — this is vendor-specific logic (STM32 memory map ≠ ESP32 ≠ TI). Moved to plugin scope (task 5.2 for STM32). Wrong bus inference = wrong clock speed = wrong init code, which is worse than no info.
 - Vendor-specific MCP federation (aggregating Microchip MCP + our data — future)
 
 ---

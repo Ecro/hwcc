@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from hwcc.chunk.markdown import (
+    CONTENT_TYPES,
     MarkdownChunker,
     _extract_atomic_blocks,
     _SectionTracker,
@@ -549,15 +550,156 @@ class TestAtomicBlockExtraction:
 
 
 class TestContentType:
-    def test_prose_type(self, chunker, config):
+    def test_detect_plain_text_returns_prose(self, chunker, config):
         result = _make_result("Just some plain text without any special formatting.")
         chunks = chunker.chunk(result, config)
         assert chunks[0].metadata.content_type == "prose"
 
-    def test_section_type(self, chunker, config):
+    def test_detect_heading_only_returns_section(self, chunker, config):
         result = _make_result("# Heading\n\nSome text under a heading.")
         chunks = chunker.chunk(result, config)
         assert chunks[0].metadata.content_type == "section"
+
+    def test_detect_fenced_code_returns_code(self, chunker, config):
+        result = _make_result("```c\nvoid init(void) { }\n```")
+        chunks = chunker.chunk(result, config)
+        assert chunks[0].metadata.content_type == "code"
+
+    def test_detect_table_with_register_keywords_returns_register_table(self, chunker, config):
+        """Table with register keywords → register_table."""
+        table = (
+            "| Register | Offset | Reset | Access |\n"
+            "|----------|--------|-------|--------|\n"
+            "| CR | 0x0000 | 0x00000000 | RW |\n"
+            "| SR | 0x0004 | 0x00000001 | RO |\n"
+        )
+        result = _make_result(table)
+        chunks = chunker.chunk(result, config)
+        assert chunks[0].metadata.content_type == "register_table"
+
+    def test_detect_prose_with_register_keywords_returns_register_desc(self, chunker, config):
+        """Prose describing registers → register_description."""
+        text = (
+            "The control register CR controls the timer operation. "
+            "Writing a 1 to bit 0 enables the counter. "
+            "The reset value is 0x00000000."
+        )
+        result = _make_result(text)
+        chunks = chunker.chunk(result, config)
+        assert chunks[0].metadata.content_type == "register_description"
+
+    def test_detect_timing_values_returns_timing_spec(self, chunker, config):
+        """Text with timing values → timing_spec."""
+        text = (
+            "The SPI clock frequency must not exceed 18 MHz. "
+            "Setup time is 5 ns minimum, hold time is 3 ns."
+        )
+        result = _make_result(text)
+        chunks = chunker.chunk(result, config)
+        assert chunks[0].metadata.content_type == "timing_spec"
+
+    def test_detect_table_with_timing_values_returns_timing_spec(self, chunker, config):
+        """Table with timing values → timing_spec."""
+        table = (
+            "| Parameter | Min | Typ | Max | Unit |\n"
+            "|-----------|-----|-----|-----|------|\n"
+            "| Setup time | 5 ns | — | — | ns |\n"
+            "| Hold time | 3 ns | — | — | ns |\n"
+        )
+        result = _make_result(table)
+        chunks = chunker.chunk(result, config)
+        assert chunks[0].metadata.content_type == "timing_spec"
+
+    def test_detect_init_steps_returns_config_procedure(self, chunker, config):
+        """Text with initialization steps → config_procedure."""
+        text = (
+            "SPI initialization sequence:\n"
+            "Follow the following steps to program the peripheral.\n"
+            "Step 1: Enable the SPI clock in the RCC.\n"
+            "Step 2: Configure the GPIO pins for alternate function.\n"
+            "Step 3: Set the baud rate divisor."
+        )
+        result = _make_result(text)
+        chunks = chunker.chunk(result, config)
+        assert chunks[0].metadata.content_type == "config_procedure"
+
+    def test_detect_errata_keywords_returns_errata(self, chunker, config):
+        """Text with errata keywords → errata."""
+        text = (
+            "Errata ES0012: SPI MISO line stuck high.\n"
+            "Workaround: Toggle the SPI enable bit before starting transfer."
+        )
+        result = _make_result(text)
+        chunks = chunker.chunk(result, config)
+        assert chunks[0].metadata.content_type == "errata"
+
+    def test_detect_table_with_gpio_af_returns_pin_mapping(self, chunker, config):
+        """Table with GPIO/AF keywords → pin_mapping."""
+        table = (
+            "| Pin | Alternate Function | Peripheral |\n"
+            "|-----|-------------------|------------|\n"
+            "| PA5 | AF5 | SPI1_SCK |\n"
+            "| PA6 | AF5 | SPI1_MISO |\n"
+        )
+        result = _make_result(table)
+        chunks = chunker.chunk(result, config)
+        assert chunks[0].metadata.content_type == "pin_mapping"
+
+    def test_detect_voltage_current_returns_electrical_spec(self, chunker, config):
+        """Text with voltage/current specs → electrical_spec."""
+        text = (
+            "Power supply requirements: VDD must be between 2.7V and 3.6V. "
+            "Maximum current consumption in active mode is 150 mA."
+        )
+        result = _make_result(text)
+        chunks = chunker.chunk(result, config)
+        assert chunks[0].metadata.content_type == "electrical_spec"
+
+    def test_detect_generic_table_returns_table(self, chunker, config):
+        """Table without domain keywords → table."""
+        table = (
+            "| Feature | Supported |\n"
+            "|---------|----------|\n"
+            "| DMA | Yes |\n"
+            "| Interrupts | Yes |\n"
+        )
+        result = _make_result(table)
+        chunks = chunker.chunk(result, config)
+        assert chunks[0].metadata.content_type == "table"
+
+    def test_detect_errata_with_register_words_returns_errata(self, chunker, config):
+        """Errata mentioning registers → errata (priority over register_description)."""
+        text = (
+            "Errata: The reset value of the status register may read incorrectly. "
+            "Workaround: Read the register twice and use the second value."
+        )
+        result = _make_result(text)
+        chunks = chunker.chunk(result, config)
+        assert chunks[0].metadata.content_type == "errata"
+
+    def test_all_content_types_in_taxonomy(self, chunker, config):
+        """Every detected content_type must be a member of CONTENT_TYPES."""
+        samples = [
+            "Just plain text.",
+            "# A Heading",
+            "```c\ncode\n```",
+            "| A | B |\n|---|---|\n| 1 | 2 |",
+            "The register has a base address of 0x40000000.",
+            "| Register | Offset |\n|----------|--------|\n| CR | 0x00000000 |",
+            "Setup time is 5 ns minimum.",
+            "Step 1: Initialize the peripheral. Follow the following steps.",
+            "Errata: Workaround required for this limitation.",
+            "| Pin | Alternate Function |\n|-----|---|\n| PA5 | AF5 |",
+            "VDD power supply: 3.3V, current consumption is 50 mA.",
+        ]
+        for sample in samples:
+            result = _make_result(sample)
+            chunks = chunker.chunk(result, config)
+            for chunk in chunks:
+                assert chunk.metadata.content_type in CONTENT_TYPES, (
+                    f"content_type '{chunk.metadata.content_type}' "
+                    f"not in CONTENT_TYPES for: {sample[:40]!r}"
+                )
 
 
 # ---------------------------------------------------------------------------

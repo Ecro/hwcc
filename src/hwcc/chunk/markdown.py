@@ -55,6 +55,74 @@ _TABLE_ROW_RE = re.compile(r"^\|.+\|$", re.MULTILINE)
 # Table separator: | --- | --- | pattern
 _TABLE_SEP_RE = re.compile(r"^\|[\s:]*-+[\s:]*\|", re.MULTILINE)
 
+# --- Hardware-domain content type taxonomy (TECH_SPEC.md §5.4) ---
+
+CONTENT_TYPES: frozenset[str] = frozenset({
+    "code",
+    "register_table",
+    "register_description",
+    "timing_spec",
+    "config_procedure",
+    "errata",
+    "pin_mapping",
+    "electrical_spec",
+    "api_reference",  # Phase 5 — requires C header parsing
+    "table",
+    "section",
+    "prose",
+})
+
+# --- Hardware-domain content type detection patterns ---
+
+# Register-related keywords (tables and prose)
+_REGISTER_KW_RE = re.compile(
+    r"\b(?:register|offset|reset\s*value|bit\s*field|"
+    r"read[/\s-]write|read[/\s-]only|write[/\s-]only|base\s*address)\b"
+    r"|0x[0-9A-Fa-f]{8}",
+    re.IGNORECASE,
+)
+
+# Timing specification keywords
+_TIMING_KW_RE = re.compile(
+    r"\b\d+\s*(?:ns|µs|us|ms|MHz|kHz|GHz)\b"
+    r"|\b(?:setup\s*time|hold\s*time|propagation\s*delay|"
+    r"clock\s*(?:speed|frequency|period)|baud\s*rate)\b",
+    re.IGNORECASE,
+)
+
+# Configuration/initialization procedure keywords
+_CONFIG_PROC_KW_RE = re.compile(
+    r"\b(?:step\s*\d|initialization\s*sequence|"
+    r"programming\s*procedure|following\s*steps|"
+    r"must\s*be\s*set|should\s*be\s*configured)\b",
+    re.IGNORECASE,
+)
+
+# Errata keywords
+_ERRATA_KW_RE = re.compile(
+    r"\b(?:errat(?:a|um)|workaround|limitation|silicon\s*bug|"
+    r"advisory|known\s*issue)\b"
+    r"|ES\d{4}",
+    re.IGNORECASE,
+)
+
+# Pin mapping keywords
+_PIN_MAP_KW_RE = re.compile(
+    r"\b(?:alternate\s*function|AF\d+|"
+    r"pin\s*(?:mapping|assignment|configuration)|remap)\b"
+    r"|\bGPIO[A-Z]\d*\b",
+    re.IGNORECASE,
+)
+
+# Electrical specification keywords
+_ELECTRICAL_KW_RE = re.compile(
+    r"\b\d+\.?\d*\s*(?:mA|µA|uA|kΩ)\b"
+    r"|\b(?:power\s*supply|current\s*consumption|"
+    r"voltage\s*(?:range|level))\b"
+    r"|\bV(?:DD|CC|SS|DDA|BAT|REF)\b",
+    re.IGNORECASE,
+)
+
 
 def _extract_atomic_blocks(text: str) -> list[tuple[str, bool]]:
     """Split text into segments, marking code blocks and tables as atomic.
@@ -446,11 +514,43 @@ class MarkdownChunker(BaseChunker):
         return result
 
     def _detect_content_type(self, text: str) -> str:
-        """Detect the primary content type of a chunk."""
+        """Detect the primary content type of a chunk.
+
+        Priority order: structural types first (code, table subtypes),
+        then domain-specific prose types, then generic fallbacks.
+        See TECH_SPEC.md §5.4 for the full taxonomy.
+        """
+        # 1. Code blocks (unambiguous structural marker)
         if _FENCE_RE.search(text):
             return "code"
+
+        # 2. Table-based types (structural + keyword refinement)
         if _TABLE_SEP_RE.search(text):
+            if _REGISTER_KW_RE.search(text):
+                return "register_table"
+            if _PIN_MAP_KW_RE.search(text):
+                return "pin_mapping"
+            if _ELECTRICAL_KW_RE.search(text):
+                return "electrical_spec"
+            if _TIMING_KW_RE.search(text):
+                return "timing_spec"
             return "table"
+
+        # 3. Domain-specific prose types (keyword-based)
+        if _ERRATA_KW_RE.search(text):
+            return "errata"
+        if _CONFIG_PROC_KW_RE.search(text):
+            return "config_procedure"
+        if _REGISTER_KW_RE.search(text):
+            return "register_description"
+        if _TIMING_KW_RE.search(text):
+            return "timing_spec"
+        if _PIN_MAP_KW_RE.search(text):
+            return "pin_mapping"
+        if _ELECTRICAL_KW_RE.search(text):
+            return "electrical_spec"
+
+        # 4. Generic structural fallbacks
         if _HEADING_RE.search(text):
             return "section"
         return "prose"

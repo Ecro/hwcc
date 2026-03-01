@@ -8,7 +8,13 @@ import pytest
 
 from hwcc.config import HwccConfig
 from hwcc.exceptions import ParseError
-from hwcc.ingest.svd import SvdParser, _format_access, _format_bit_range, _format_hex
+from hwcc.ingest.svd import (
+    SvdParser,
+    _compute_field_reset,
+    _format_access,
+    _format_bit_range,
+    _format_hex,
+)
 from hwcc.types import ParseResult
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
@@ -167,6 +173,42 @@ class TestFieldTable:
     def test_field_description_present(self, result):
         assert "Timer enable" in result.content
         assert "Timer mode" in result.content
+
+    def test_field_reset_computed_from_register(self, result):
+        """Field reset values should be computed from register reset, not hardcoded '—'."""
+        content = result.content
+        # CR has reset=0x00000000, EN is bit 0 → 0x0
+        # Find CR Fields section
+        cr_start = content.index("### CR Fields")
+        cr_end = content.index("\n### ", cr_start + 1)
+        cr_section = content[cr_start:cr_end]
+        assert "| 0x0 |" in cr_section  # All CR fields reset to 0
+
+    def test_field_reset_nonzero(self, result):
+        """SR.BUSY: bit 0 of reset=0x00000001 → 0x1."""
+        content = result.content
+        sr_start = content.index("### SR Fields")
+        sr_section = content[sr_start:]
+        # BUSY is bit [0], reset value should be 0x1
+        # Find the BUSY row
+        for line in sr_section.split("\n"):
+            if "| BUSY |" in line:
+                assert "| 0x1 |" in line, f"Expected 0x1 reset for BUSY, got: {line}"
+                break
+        else:
+            pytest.fail("BUSY field not found in SR Fields")
+
+    def test_field_reset_zero_from_nonzero_register(self, result):
+        """SR.OVF: bit 1 of reset=0x00000001 → 0x0."""
+        content = result.content
+        sr_start = content.index("### SR Fields")
+        sr_section = content[sr_start:]
+        for line in sr_section.split("\n"):
+            if "| OVF |" in line:
+                assert "| 0x0 |" in line, f"Expected 0x0 reset for OVF, got: {line}"
+                break
+        else:
+            pytest.fail("OVF field not found in SR Fields")
 
     def test_fields_sorted_by_bit_position_descending(self, result):
         content = result.content
@@ -327,6 +369,63 @@ class TestFormatHex:
 
     def test_none_returns_dash(self):
         assert _format_hex(None, 8) == "—"
+
+
+class TestComputeFieldReset:
+    def test_compute_field_reset_single_bit_zero_register_returns_0x0(self):
+        """1-bit field from register reset=0x0 → '0x0'."""
+        assert _compute_field_reset(0x00000000, 0, 1) == "0x0"
+
+    def test_compute_field_reset_single_bit_one_register_returns_0x1(self):
+        """SR.BUSY: bit 0 of reset=0x00000001 → '0x1'."""
+        assert _compute_field_reset(0x00000001, 0, 1) == "0x1"
+
+    def test_compute_field_reset_multi_bit_zero_register_returns_0x0(self):
+        """MODE: bits [2:1] of reset=0x0 → '0x0'."""
+        assert _compute_field_reset(0x00000000, 1, 2) == "0x0"
+
+    def test_compute_field_reset_multi_bit_nonzero_extracts_correctly(self):
+        """2-bit field at offset 1, register reset=0x00000006 (bits[2:1]=0b11) → '0x3'."""
+        assert _compute_field_reset(0x00000006, 1, 2) == "0x3"
+
+    def test_compute_field_reset_8bit_field_returns_2_hex_digits(self):
+        """8-bit field at offset 0, register reset=0x000000FF → '0xFF'."""
+        assert _compute_field_reset(0x000000FF, 0, 8) == "0xFF"
+
+    def test_compute_field_reset_high_bit_31_returns_0x1(self):
+        """1-bit field at bit 31, register reset=0x80000000 → '0x1'."""
+        assert _compute_field_reset(0x80000000, 31, 1) == "0x1"
+
+    def test_compute_field_reset_16bit_field_returns_4_hex_digits(self):
+        """16-bit field at offset 0, register reset=0x0000ABCD → '0xABCD'."""
+        assert _compute_field_reset(0x0000ABCD, 0, 16) == "0xABCD"
+
+    def test_compute_field_reset_zero_width_returns_0x0(self):
+        """Edge case: bit_width=0 should return '0x0' safely."""
+        assert _compute_field_reset(0xFFFFFFFF, 0, 0) == "0x0"
+
+    def test_compute_field_reset_negative_offset_returns_0x0(self):
+        """Edge case: negative bit_offset should return '0x0' safely."""
+        assert _compute_field_reset(0xFFFFFFFF, -1, 1) == "0x0"
+
+
+class TestFieldResetNone:
+    def test_field_reset_dash_when_register_has_no_reset(self, parser):
+        """When register has no reset value, field reset should be '—'."""
+        from unittest.mock import MagicMock
+
+        from cmsis_svd.model import SVDField
+
+        field = MagicMock(spec=SVDField)
+        field.name = "EN"
+        field.bit_offset = 0
+        field.bit_width = 1
+        field.access = None
+        field.description = "Test"
+
+        lines = parser._render_field_table("REG", [field], register_reset_value=None)
+        table_text = "\n".join(lines)
+        assert "| — |" in table_text
 
 
 class TestFormatBitRange:

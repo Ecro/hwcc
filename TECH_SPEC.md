@@ -1,8 +1,8 @@
 # hwcc — Technical Specification
 
-> **Version**: 0.1.0-draft
-> **Date**: 2026-02-27
-> **Status**: Draft — pending review
+> **Version**: 0.2.0-draft
+> **Date**: 2026-03-01
+> **Status**: Draft — updated with EmbedGenius + Embedder research findings
 
 ---
 
@@ -99,6 +99,7 @@ Hardware MCP servers are emerging but serve **different use cases** — interact
 
 - **RespCode benchmarks**: 3 of 4 flagship LLMs produce firmware with wrong register addresses without proper context. Our approach prevents this at the source.
 - **Academic research (2026)**: Multiple papers confirm LLMs still hallucinate register addresses and introduce security vulnerabilities in generated firmware (arXiv:2509.09970, arXiv:2601.19106). Post-generation validation is an active research area — our pre-generation context injection is the complementary approach.
+- **EmbedGenius (arXiv:2412.09058v2)**: Automated embedded IoT framework achieving 95.7% coding accuracy across 355 tasks. Key findings applicable to hwcc: (1) structured pin assignments prevent the most common embedded errors, (2) relevance-scored retrieval reduces token consumption by 26.2%, (3) usage pattern tables (API call sequences) boost accuracy by +7.1% and completion by +15%, (4) content-type-aware retrieval outperforms generic search. These techniques improve our context quality without requiring code generation capabilities.
 - **Microchip MCP server**: Silicon vendor validating the MCP-based approach. Their server covers product selection, not programming context — complementary, not competitive.
 - **MCP ecosystem growth**: 425 servers (Aug 2025) → 1,412 (Feb 2026) — 232% growth in 6 months. Gartner projects 75% of API gateway vendors will have MCP features by 2026. Strong tailwind for our MCP server output.
 - **HN discussion (Embedder launch)**: Engineers confirm SVD/structured data > PDF parsing for register accuracy. PDF-only approaches are insufficient.
@@ -273,6 +274,15 @@ hal = "STM32 HAL v1.27.1"
 language = "C"
 build_system = "CMake"
 
+[pins]
+spi1_sck = "PA5"
+spi1_mosi = "PA7"
+spi1_miso = "PA6"
+spi1_nss = "PA4"
+uart_debug_tx = "PA2"
+uart_debug_rx = "PA3"
+led_status = "PC13"
+
 [conventions]
 register_access = "HAL functions only, no direct register writes"
 error_handling = "return HAL_StatusTypeDef"
@@ -416,6 +426,37 @@ Raw Document
 }
 ```
 
+#### Content Type Taxonomy
+
+Hardware-domain-aware classification applied during chunking. Enables targeted retrieval and richer peripheral context organization.
+
+| Content Type | Detection Method | Example Content |
+|-------------|-----------------|----------------|
+| `code` | Fenced code block (``` or ~~~) | Code examples, HAL usage snippets |
+| `register_table` | Table + register keywords (offset, bit, reset value) | Register map tables from datasheets |
+| `register_description` | Prose + register keywords | Text describing register fields and functions |
+| `timing_spec` | Timing units (ns, us, MHz, setup/hold time) | Timing specifications, clock requirements |
+| `config_procedure` | Init/configuration keywords (step N, enable, procedure) | Initialization sequences, programming guides |
+| `errata` | Errata keywords (workaround, limitation, ES####) | Silicon bug descriptions and workarounds |
+| `pin_mapping` | GPIO/AF keywords (alternate function, remap) | Pin assignment tables, AF mappings |
+| `electrical_spec` | Voltage/current keywords (V, mA, power supply) | Electrical characteristics, power specs |
+| `api_reference` | Structured function signatures from C/H headers | HAL/driver API tables (Phase 5) |
+| `table` | Markdown table without domain-specific keywords | Generic tables |
+| `section` | Markdown heading without other indicators | Section headers |
+| `prose` | Default fallback | General descriptive text |
+
+Detection is priority-ordered: structural types first (code > table subtypes > section), then domain-specific prose types. Inspired by EmbedGenius's content-type-aware retrieval which improved search precision.
+
+### 5.5 SVD Field-Level Reset Values
+
+Per-field reset values are computed deterministically from the parent register's reset value:
+
+```python
+field_reset = (register_reset_value >> bit_offset) & ((1 << bit_width) - 1)
+```
+
+This eliminates the need for field-level reset values in the SVD file (which are often missing) and provides engineers with exact reset state for each bit field — critical for understanding peripheral state after reset.
+
 ---
 
 ## 6. Output / Serving Layer
@@ -426,7 +467,7 @@ Auto-generated after every `hwcc add` or `hwcc compile`:
 
 | Output File | Target Tool | Max Size | Content |
 |------------|-------------|----------|---------|
-| `CLAUDE.md` (hardware section) | Claude Code | ~120 lines | Chip info, errata, conventions, MCP tool hints |
+| `CLAUDE.md` (hardware section) | Claude Code | ~120 lines | Chip info, pins, errata, conventions, MCP tool hints |
 | `AGENTS.md` | Codex CLI | ~120 lines | Same content, Codex format |
 | `.gemini/GEMINI.md` | Gemini CLI | ~120 lines | Same content, Gemini format |
 | `.cursor/rules/hardware.mdc` | Cursor | ~120 lines | Same content, MDC format |
@@ -444,6 +485,47 @@ Auto-generated after every `hwcc add` or `hwcc compile`:
 <!-- END HWCC CONTEXT -->
 ```
 
+#### Peripheral Context Structure (6 sections)
+
+Each `.rag/context/peripherals/<name>.md` file contains up to 6 sections, ordered for maximum AI utility:
+
+```
+# SPI1 — STM32F407
+
+## Pin Assignments              ← from [pins] config (optional)
+## Register Map                 ← from SVD with per-field reset values
+## Usage Patterns               ← initialization/config procedures from ref manual
+## API Reference                ← structured function tables from C/H headers (Phase 5)
+## Known Errata                 ← cross-referenced from errata docs
+## Additional Details           ← relevance-scored chunks with source citations
+```
+
+> **Design note**: Hardware relationship metadata (bus, clock, DMA, IRQ) is intentionally NOT in core. Bus inference from SVD base addresses is vendor-specific (STM32 memory map ≠ ESP32 ≠ TI). Wrong bus = wrong clock speed = wrong init code, which is worse than no info. This belongs in vendor plugins (e.g., `rag-plugin-stm32`).
+
+Every section includes **source provenance** — inline citations to the exact document, section, and page:
+
+```markdown
+*Source: RM0090 §28.3.3 "Configuration of SPI", p.868*
+```
+
+Source citations are the primary trust mechanism. The metadata (`doc_id`, `section_path`, `page`) is already stored per chunk; the compile stage renders it alongside content. This allows engineers to verify any claim against the original documentation.
+
+#### Hot Context Structure
+
+The always-loaded `hot.md` summary (~120 lines) includes:
+
+```
+# Hardware Context — {project_name}
+
+## Target Hardware              ← MCU specs from [hardware] config
+## Pin Assignments              ← from [pins] config (board-level wiring)
+## Software Stack               ← from [software] config
+## Peripherals                  ← list with register count + errata count per peripheral
+## Errata Highlights            ← top-priority silicon bugs
+## Coding Conventions           ← from [conventions] config (preset or custom)
+## Indexed Documents            ← document inventory with types
+```
+
 ### 6.2 MCP Server
 
 Exposed tools:
@@ -458,6 +540,10 @@ Exposed tools:
 | `hw_doc(doc_id, section?)` | Get specific document section | `hw_doc("rm_rm0090", "§28.3.4")` |
 
 Transport: stdio (local, default) or HTTP (for remote/team setups).
+
+#### Query Decomposition
+
+Complex queries spanning multiple peripherals (e.g., "Record DHT11 temperature to SD card via SPI") are automatically decomposed into per-peripheral sub-queries using keyword extraction against known peripheral names from the store. No LLM needed — simple regex matching of peripheral names + operation keywords (init, read, write, configure, interrupt, DMA). Sub-query results are merged with deduplication by chunk_id, keeping the highest-scoring instance. Inspired by EmbedGenius's task decomposition which improved retrieval relevance for multi-component tasks.
 
 ### 6.3 Slash Commands
 
@@ -549,6 +635,12 @@ COMMANDS:
 
   hwcc search <query>
       Search indexed documents. Returns ranked chunks with sources.
+
+  hwcc catalog [list|add] [--family <family>] [<chip>]
+      Browse and add MCUs from built-in cmsis-svd catalog (300+ MCUs).
+      hwcc catalog list                  # List available families
+      hwcc catalog list --family STM32   # List STM32 chips
+      hwcc catalog add STM32F407         # Add SVD from catalog (zero-config)
 
   hwcc config [key] [value]
       Get/set configuration values.
@@ -738,6 +830,6 @@ MIT License — free forever, no restrictions.
 - [ ] Should `.rag/` be gitignored or committed? (index is regenerable, but slow)
 - [x] ~~How to handle multi-chip projects?~~ → **YES, v1 scope.** Gap G5: real projects use multi-vendor chips. Support `--chip` tag per document. Single `.rag/` store, chip metadata on chunks.
 - [ ] Should the MCP server cache results for performance?
-- [ ] How to handle document versioning? (new datasheet revision replaces old)
+- [x] ~~How to handle document versioning?~~ → Add `document_version` and `silicon_revision` fields to manifest `DocumentEntry`. Metadata stored passively (no interactive prompts — preserves scripting/CI compatibility). Enables revision-aware context rendering: "STM32F407 Rev Z (latest)".
 - [x] ~~Naming~~ → **hwcc** (Hardware Context Compiler). Short, unix-style (like gcc), self-documenting. PyPI: `pip install hwcc`. CLI: `hwcc`.
 - [ ] Should we publish a formal "hardware llms.txt" spec proposal? (Gap G6)
