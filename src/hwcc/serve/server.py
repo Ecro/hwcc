@@ -80,6 +80,22 @@ def _validate_peripheral_name(name: str) -> str | None:
     return None
 
 
+def _peripheral_from_section_path(section_path: str) -> str:
+    """Extract peripheral name from an SVD section_path.
+
+    SVD section_paths follow::
+
+        "DeviceName Register Map > PeripheralName [> SubSection]"
+
+    Returns the peripheral name (2nd element) or empty string if the
+    path cannot be parsed.
+    """
+    parts = section_path.split(" > ")
+    if len(parts) >= 2:
+        return parts[1].strip()
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # Tool handlers (pure functions — testable without MCP framework)
 # ---------------------------------------------------------------------------
@@ -141,10 +157,14 @@ def handle_hw_registers(
     Returns markdown register documentation with reset values and fields.
     Filters to ``content_type="register_description"`` by default so only
     SVD-sourced register data is returned (not PDF prose).
+
+    The ``peripheral`` metadata field is not populated during SVD ingestion,
+    so we filter by ``section_path`` instead (same approach the compile stage
+    uses to discover peripherals).
     """
     where = build_where(
         chip=chip,
-        peripheral=peripheral.upper(),
+        doc_type="svd",
         content_type="register_description",
     )
 
@@ -153,6 +173,14 @@ def handle_hw_registers(
     except HwccError as exc:
         logger.error("hw_registers failed: %s", exc)
         return f"Store error: {exc}"
+
+    # Post-filter by peripheral name extracted from section_path
+    periph_upper = peripheral.upper()
+    chunks = [
+        c
+        for c in chunks
+        if _peripheral_from_section_path(c.metadata.section_path).upper() == periph_upper
+    ]
 
     # Filter by register name if provided
     if register and chunks:
@@ -178,33 +206,55 @@ def handle_hw_context(
 ) -> str:
     """Get full peripheral context (pre-compiled or from store).
 
-    Reads the pre-compiled ``.rag/context/peripherals/<name>.md`` file first.
-    Falls back to querying the store if no pre-compiled file exists.
+    Looks for pre-compiled files in ``.rag/context/peripherals/`` with
+    chip-suffixed names (e.g. ``spi1_stm32f407.md``) first, then plain
+    names (``spi1.md``), then a glob fallback.  Falls back to querying
+    the store if no pre-compiled file exists.
     """
     error = _validate_peripheral_name(peripheral)
     if error:
         return error
+    if chip:
+        error = _validate_peripheral_name(chip)
+        if error:
+            return f"Invalid chip name: **{chip}**"
 
     periph_lower = peripheral.lower()
-    periph_file = ctx.project_root / RAG_DIR / "context" / "peripherals" / f"{periph_lower}.md"
-
-    # Defence in depth: ensure resolved path stays within peripherals dir
     peripherals_dir = (ctx.project_root / RAG_DIR / "context" / "peripherals").resolve()
-    if not periph_file.resolve().is_relative_to(peripherals_dir):
-        return f"Invalid peripheral name: **{peripheral}**"
 
-    if periph_file.is_file():
-        logger.info("Serving pre-compiled context for %s from %s", peripheral, periph_file)
-        return periph_file.read_text(encoding="utf-8")
+    # Build candidate file paths: chip-specific first, then generic
+    candidates: list[Path] = []
+    if chip:
+        candidates.append(peripherals_dir / f"{periph_lower}_{chip.lower()}.md")
+    candidates.append(peripherals_dir / f"{periph_lower}.md")
 
-    # Fallback: query store
-    where = build_where(chip=chip, peripheral=peripheral.upper())
+    for candidate in candidates:
+        if candidate.resolve().is_relative_to(peripherals_dir) and candidate.is_file():
+            logger.info("Serving pre-compiled context for %s from %s", peripheral, candidate)
+            return candidate.read_text(encoding="utf-8")
+
+    # Glob fallback: find any {periph}_*.md file
+    matches = sorted(peripherals_dir.glob(f"{periph_lower}_*.md"))
+    matches = [m for m in matches if m.resolve().is_relative_to(peripherals_dir)]
+    if matches:
+        logger.info("Serving pre-compiled context for %s from %s (glob)", peripheral, matches[0])
+        return matches[0].read_text(encoding="utf-8")
+
+    # Store fallback: filter by section_path (peripheral metadata is empty)
+    where = build_where(chip=chip, doc_type="svd")
 
     try:
         chunks = ctx.store.get_chunks(where=where)
     except HwccError as exc:
         logger.error("hw_context failed: %s", exc)
         return f"Store error: {exc}"
+
+    periph_upper = peripheral.upper()
+    chunks = [
+        c
+        for c in chunks
+        if _peripheral_from_section_path(c.metadata.section_path).upper() == periph_upper
+    ]
 
     if not chunks:
         return f"No context found for peripheral **{peripheral}**."
@@ -223,19 +273,24 @@ def handle_hw_context(
 
 
 def handle_list_peripherals(ctx: HwccContext) -> str:
-    """List all peripherals found in the store."""
+    """List all peripherals found in the store.
+
+    Extracts peripheral names from ``section_path`` metadata (the
+    ``peripheral`` metadata field is not populated during SVD ingestion).
+    """
     try:
-        metadata_list = ctx.store.get_chunk_metadata(where=None)
+        metadata_list = ctx.store.get_chunk_metadata(where={"doc_type": "svd"})
     except HwccError as exc:
         logger.error("list_peripherals failed: %s", exc)
         return f"Store error: {exc}"
 
     peripherals: dict[str, set[str]] = {}
     for meta in metadata_list:
-        if meta.peripheral:
-            peripherals.setdefault(meta.peripheral, set())
+        periph_name = _peripheral_from_section_path(meta.section_path)
+        if periph_name:
+            peripherals.setdefault(periph_name, set())
             if meta.chip:
-                peripherals[meta.peripheral].add(meta.chip)
+                peripherals[periph_name].add(meta.chip)
 
     if not peripherals:
         return "No peripherals found in the store."
@@ -277,6 +332,10 @@ def create_server(project_root: Path | None = None) -> FastMCP:
 
     The returned server is not started — call ``server.run()`` to serve.
     """
+    # Mutable holder for the lifespan context.  Resources in FastMCP 1.x
+    # do not support ``Context`` dependency injection (silently dropped),
+    # so we use a closure instead.
+    _ctx_holder: list[HwccContext] = []
 
     @asynccontextmanager
     async def _hwcc_lifespan(server: FastMCP) -> AsyncIterator[HwccContext]:
@@ -300,14 +359,18 @@ def create_server(project_root: Path | None = None) -> FastMCP:
 
         logger.info("MCP server initialised (root=%s, chunks=%d)", root, store.count())
 
+        hwcc_ctx = HwccContext(
+            store=store,
+            search_engine=engine,
+            project_root=root,
+            manifest=manifest,
+        )
+        _ctx_holder.append(hwcc_ctx)
+
         try:
-            yield HwccContext(
-                store=store,
-                search_engine=engine,
-                project_root=root,
-                manifest=manifest,
-            )
+            yield hwcc_ctx
         finally:
+            _ctx_holder.clear()
             logger.info("MCP server shutting down")
 
     mcp = FastMCP("hwcc", lifespan=_hwcc_lifespan)
@@ -369,22 +432,23 @@ def create_server(project_root: Path | None = None) -> FastMCP:
         return handle_hw_context(hwcc_ctx, peripheral=peripheral, chip=chip)
 
     # -- Resources -----------------------------------------------------------
+    # FastMCP 1.x silently drops resources whose function signature includes
+    # a ``Context`` parameter, so resource functions access the lifespan
+    # context via the ``_ctx_holder`` closure instead.
 
     @mcp.resource("hw://peripherals")
-    def peripherals(
-        ctx: Context[Any, Any, Any] | None = None,
-    ) -> str:
+    def peripherals() -> str:
         """List all indexed peripherals with chip information."""
-        hwcc_ctx: HwccContext = ctx.request_context.lifespan_context  # type: ignore[union-attr]
-        return handle_list_peripherals(hwcc_ctx)
+        if not _ctx_holder:
+            return "Server not initialized."
+        return handle_list_peripherals(_ctx_holder[0])
 
     @mcp.resource("hw://documents")
-    def documents(
-        ctx: Context[Any, Any, Any] | None = None,
-    ) -> str:
+    def documents() -> str:
         """List all indexed documents with type, chip, and chunk count."""
-        hwcc_ctx: HwccContext = ctx.request_context.lifespan_context  # type: ignore[union-attr]
-        return handle_list_documents(hwcc_ctx)
+        if not _ctx_holder:
+            return "Server not initialized."
+        return handle_list_documents(_ctx_holder[0])
 
     return mcp
 

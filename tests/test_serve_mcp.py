@@ -119,10 +119,12 @@ def _make_chunk(
     peripheral: str = "",
     content_type: str = "",
     doc_type: str = "svd",
+    section_path: str = "",
+    chunk_id: str = "chunk-1",
 ) -> Chunk:
     """Helper to build a Chunk."""
     return Chunk(
-        chunk_id="chunk-1",
+        chunk_id=chunk_id,
         content=content,
         token_count=10,
         metadata=ChunkMetadata(
@@ -131,6 +133,7 @@ def _make_chunk(
             chip="STM32F407",
             peripheral=peripheral,
             content_type=content_type,
+            section_path=section_path,
         ),
     )
 
@@ -221,6 +224,34 @@ class TestValidatePeripheralName:
         assert _validate_peripheral_name("SPI1\x00") is not None
 
 
+class TestPeripheralFromSectionPath:
+    def test_extracts_peripheral_name(self):
+        from hwcc.serve.server import _peripheral_from_section_path
+
+        assert _peripheral_from_section_path("STM32F407 Register Map > SPI1 > Registers") == "SPI1"
+        assert _peripheral_from_section_path("nrf52840 Register Map > TWI0 > Registers") == "TWI0"
+
+    def test_two_element_path(self):
+        from hwcc.serve.server import _peripheral_from_section_path
+
+        assert _peripheral_from_section_path("DeviceName > USART1") == "USART1"
+
+    def test_returns_empty_for_single_element(self):
+        from hwcc.serve.server import _peripheral_from_section_path
+
+        assert _peripheral_from_section_path("DeviceName") == ""
+
+    def test_returns_empty_for_empty_string(self):
+        from hwcc.serve.server import _peripheral_from_section_path
+
+        assert _peripheral_from_section_path("") == ""
+
+    def test_strips_whitespace(self):
+        from hwcc.serve.server import _peripheral_from_section_path
+
+        assert _peripheral_from_section_path("Dev >  SPI1 ") == "SPI1"
+
+
 # ---------------------------------------------------------------------------
 # hw_search
 # ---------------------------------------------------------------------------
@@ -303,14 +334,22 @@ class TestHwSearch:
 
 
 class TestHwRegisters:
-    def test_returns_register_chunks(self, hwcc_ctx, mock_store):
+    def test_returns_register_chunks_via_section_path(self, hwcc_ctx, mock_store):
+        """hw_registers filters by section_path, not peripheral metadata."""
         from hwcc.serve.server import handle_hw_registers
 
         chunks = [
             _make_chunk(
                 "## SPI1_CR1\nBit 0: CPHA",
-                peripheral="SPI1",
                 content_type="register_description",
+                section_path="STM32F407 Register Map > SPI1 > CR1 Fields",
+                chunk_id="c1",
+            ),
+            _make_chunk(
+                "## TIM1_CR1\nBit 0: CEN",
+                content_type="register_description",
+                section_path="STM32F407 Register Map > TIM1 > CR1 Fields",
+                chunk_id="c2",
             ),
         ]
         mock_store.get_chunks.return_value = chunks
@@ -319,20 +358,31 @@ class TestHwRegisters:
 
         assert "SPI1_CR1" in output
         assert "CPHA" in output
+        # TIM1 chunk should be filtered out by section_path
+        assert "TIM1" not in output
 
     def test_with_register_filter(self, hwcc_ctx, mock_store):
         from hwcc.serve.server import handle_hw_registers
 
         chunks = [
-            _make_chunk("## SPI1_CR1\nBit 0: CPHA", peripheral="SPI1"),
-            _make_chunk("## SPI1_CR2\nBit 0: RXDMAEN", peripheral="SPI1"),
+            _make_chunk(
+                "## SPI1_CR1\nBit 0: CPHA",
+                section_path="STM32F407 Register Map > SPI1 > CR1 Fields",
+                chunk_id="c1",
+            ),
+            _make_chunk(
+                "## SPI1_CR2\nBit 0: RXDMAEN",
+                section_path="STM32F407 Register Map > SPI1 > CR2 Fields",
+                chunk_id="c2",
+            ),
         ]
         mock_store.get_chunks.return_value = chunks
 
         output = handle_hw_registers(hwcc_ctx, peripheral="SPI1", register="CR1")
         assert "CR1" in output
 
-    def test_passes_content_type_register_description(self, hwcc_ctx, mock_store):
+    def test_where_clause_uses_doc_type_and_content_type(self, hwcc_ctx, mock_store):
+        """Where clause should filter by doc_type+content_type, NOT peripheral."""
         from hwcc.serve.server import handle_hw_registers
 
         mock_store.get_chunks.return_value = []
@@ -342,8 +392,10 @@ class TestHwRegisters:
         call_kwargs = mock_store.get_chunks.call_args[1]
         where = call_kwargs["where"]
         assert "$and" in where
-        assert {"peripheral": "SPI1"} in where["$and"]
+        assert {"doc_type": "svd"} in where["$and"]
         assert {"content_type": "register_description"} in where["$and"]
+        # peripheral should NOT be in the where clause (it's empty in metadata)
+        assert {"peripheral": "SPI1"} not in where["$and"]
 
     def test_with_chip_filter_builds_and_clause(self, hwcc_ctx, mock_store):
         from hwcc.serve.server import handle_hw_registers
@@ -355,9 +407,23 @@ class TestHwRegisters:
         call_kwargs = mock_store.get_chunks.call_args[1]
         where = call_kwargs["where"]
         assert "$and" in where
-        assert {"peripheral": "SPI1"} in where["$and"]
         assert {"chip": "STM32F407"} in where["$and"]
+        assert {"doc_type": "svd"} in where["$and"]
         assert {"content_type": "register_description"} in where["$and"]
+
+    def test_case_insensitive_peripheral_match(self, hwcc_ctx, mock_store):
+        from hwcc.serve.server import handle_hw_registers
+
+        chunks = [
+            _make_chunk(
+                "## SPI1_CR1",
+                section_path="STM32F407 Register Map > SPI1 > CR1 Fields",
+            ),
+        ]
+        mock_store.get_chunks.return_value = chunks
+
+        output = handle_hw_registers(hwcc_ctx, peripheral="spi1")
+        assert "SPI1" in output
 
     def test_no_results(self, hwcc_ctx, mock_store):
         from hwcc.serve.server import handle_hw_registers
@@ -382,7 +448,7 @@ class TestHwRegisters:
 
 
 class TestHwContext:
-    def test_reads_precompiled_file(self, hwcc_ctx, project_root):
+    def test_reads_plain_precompiled_file(self, hwcc_ctx, project_root):
         from hwcc.serve.server import handle_hw_context
 
         periph_file = project_root / ".rag" / "context" / "peripherals" / "spi1.md"
@@ -391,16 +457,56 @@ class TestHwContext:
         output = handle_hw_context(hwcc_ctx, peripheral="SPI1")
         assert "Pre-compiled context for SPI1" in output
 
-    def test_falls_back_to_store(self, hwcc_ctx, mock_store):
+    def test_reads_chip_suffixed_file(self, hwcc_ctx, project_root):
+        """When chip is provided, prefer {periph}_{chip}.md over {periph}.md."""
+        from hwcc.serve.server import handle_hw_context
+
+        periph_dir = project_root / ".rag" / "context" / "peripherals"
+        (periph_dir / "spi1_stm32f407.md").write_text("# SPI1 STM32F407 context", encoding="utf-8")
+        (periph_dir / "spi1.md").write_text("# SPI1 generic context", encoding="utf-8")
+
+        output = handle_hw_context(hwcc_ctx, peripheral="SPI1", chip="STM32F407")
+        assert "STM32F407 context" in output
+
+    def test_falls_back_to_plain_file_when_chip_suffixed_missing(self, hwcc_ctx, project_root):
+        from hwcc.serve.server import handle_hw_context
+
+        periph_dir = project_root / ".rag" / "context" / "peripherals"
+        (periph_dir / "spi1.md").write_text("# SPI1 generic context", encoding="utf-8")
+
+        output = handle_hw_context(hwcc_ctx, peripheral="SPI1", chip="STM32F407")
+        assert "generic context" in output
+
+    def test_glob_fallback_when_no_exact_match(self, hwcc_ctx, project_root):
+        """When no chip provided and no plain file, glob for {periph}_*.md."""
+        from hwcc.serve.server import handle_hw_context
+
+        periph_dir = project_root / ".rag" / "context" / "peripherals"
+        (periph_dir / "spi1_stm32f407.md").write_text("# SPI1 via glob", encoding="utf-8")
+
+        output = handle_hw_context(hwcc_ctx, peripheral="SPI1")
+        assert "SPI1 via glob" in output
+
+    def test_falls_back_to_store_via_section_path(self, hwcc_ctx, mock_store):
         from hwcc.serve.server import handle_hw_context
 
         chunks = [
-            _make_chunk("SPI1 register data from store", peripheral="SPI1"),
+            _make_chunk(
+                "SPI1 register data from store",
+                section_path="STM32F407 Register Map > SPI1 > Registers",
+                chunk_id="c1",
+            ),
+            _make_chunk(
+                "TIM1 register data",
+                section_path="STM32F407 Register Map > TIM1 > Registers",
+                chunk_id="c2",
+            ),
         ]
         mock_store.get_chunks.return_value = chunks
 
         output = handle_hw_context(hwcc_ctx, peripheral="SPI1")
         assert "SPI1 register data from store" in output
+        assert "TIM1" not in output
 
     def test_unknown_peripheral(self, hwcc_ctx, mock_store):
         from hwcc.serve.server import handle_hw_context
@@ -409,17 +515,6 @@ class TestHwContext:
 
         output = handle_hw_context(hwcc_ctx, peripheral="UNKNOWN_PERIPH")
         assert "no context" in output.lower() or "not found" in output.lower()
-
-    def test_with_chip_filter_builds_and_clause(self, hwcc_ctx, mock_store):
-        from hwcc.serve.server import handle_hw_context
-
-        mock_store.get_chunks.return_value = []
-
-        handle_hw_context(hwcc_ctx, peripheral="SPI1", chip="STM32F407")
-
-        call_kwargs = mock_store.get_chunks.call_args[1]
-        where = call_kwargs["where"]
-        assert "$and" in where
 
     def test_rejects_path_traversal(self, hwcc_ctx):
         from hwcc.serve.server import handle_hw_context
@@ -431,6 +526,12 @@ class TestHwContext:
         from hwcc.serve.server import handle_hw_context
 
         output = handle_hw_context(hwcc_ctx, peripheral="foo/bar")
+        assert "invalid" in output.lower()
+
+    def test_rejects_malicious_chip_name(self, hwcc_ctx):
+        from hwcc.serve.server import handle_hw_context
+
+        output = handle_hw_context(hwcc_ctx, peripheral="SPI1", chip="../../etc")
         assert "invalid" in output.lower()
 
     def test_store_error_returns_message(self, hwcc_ctx, mock_store):
@@ -448,20 +549,51 @@ class TestHwContext:
 
 
 class TestResources:
-    def test_peripherals_resource(self, hwcc_ctx, mock_store):
+    def test_peripherals_resource_extracts_from_section_path(self, hwcc_ctx, mock_store):
+        """handle_list_peripherals uses section_path, not peripheral metadata."""
         from hwcc.serve.server import handle_list_peripherals
 
         mock_store.get_chunk_metadata.return_value = [
-            ChunkMetadata(doc_id="stm32", chip="STM32F407", peripheral="SPI1"),
-            ChunkMetadata(doc_id="stm32", chip="STM32F407", peripheral="SPI1"),
-            ChunkMetadata(doc_id="stm32", chip="STM32F407", peripheral="USART1"),
-            ChunkMetadata(doc_id="stm32", chip="STM32F407", peripheral="I2C1"),
+            ChunkMetadata(
+                doc_id="stm32",
+                chip="STM32F407",
+                doc_type="svd",
+                section_path="STM32F407 Register Map > SPI1 > CR1 Fields",
+            ),
+            ChunkMetadata(
+                doc_id="stm32",
+                chip="STM32F407",
+                doc_type="svd",
+                section_path="STM32F407 Register Map > SPI1 > CR2 Fields",
+            ),
+            ChunkMetadata(
+                doc_id="stm32",
+                chip="STM32F407",
+                doc_type="svd",
+                section_path="STM32F407 Register Map > USART1 > Registers",
+            ),
+            ChunkMetadata(
+                doc_id="stm32",
+                chip="STM32F407",
+                doc_type="svd",
+                section_path="STM32F407 Register Map > I2C1 > Registers",
+            ),
         ]
 
         output = handle_list_peripherals(hwcc_ctx)
         assert "SPI1" in output
         assert "USART1" in output
         assert "I2C1" in output
+
+    def test_peripherals_queries_svd_only(self, hwcc_ctx, mock_store):
+        from hwcc.serve.server import handle_list_peripherals
+
+        mock_store.get_chunk_metadata.return_value = []
+
+        handle_list_peripherals(hwcc_ctx)
+
+        call_kwargs = mock_store.get_chunk_metadata.call_args[1]
+        assert call_kwargs["where"] == {"doc_type": "svd"}
 
     def test_peripherals_empty_store(self, hwcc_ctx, mock_store):
         from hwcc.serve.server import handle_list_peripherals
@@ -524,3 +656,21 @@ class TestServerCreation:
 
         server = create_server()
         assert server.name == "hwcc"
+
+    def test_resources_are_registered(self):
+        """FastMCP must register both resources (no silent drops)."""
+        from hwcc.serve.server import create_server
+
+        server = create_server()
+        resource_keys = list(server._resource_manager._resources.keys())
+        assert "hw://peripherals" in resource_keys
+        assert "hw://documents" in resource_keys
+
+    def test_tools_are_registered(self):
+        from hwcc.serve.server import create_server
+
+        server = create_server()
+        tool_names = list(server._tool_manager._tools.keys())
+        assert "hw_search" in tool_names
+        assert "hw_registers" in tool_names
+        assert "hw_context" in tool_names
