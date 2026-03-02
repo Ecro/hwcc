@@ -115,7 +115,7 @@ class ChromaDBEmbedder(BaseEmbedder):
         if not vectors or len(vectors) != 1:
             raise EmbeddingError("ChromaDB returned unexpected result for single query")
 
-        vec = list(vectors[0])
+        vec = [float(v) for v in vectors[0]]
 
         if self._dimension is None:
             self._dimension = len(vec)
