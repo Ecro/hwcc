@@ -908,13 +908,33 @@ def bench_run(
         float,
         typer.Option("--delay", help="Delay between API calls (seconds)"),
     ] = 0.5,
+    runs: Annotated[
+        int,
+        typer.Option("--runs", min=1, help="Runs per condition for statistical analysis"),
+    ] = 1,
+    output_format: Annotated[
+        str,
+        typer.Option("--output-format", help="Output format: json or markdown"),
+    ] = "json",
+
 ) -> None:
     """Run benchmark against an LLM provider."""
+    if output_format not in ("json", "markdown"):
+        console.print(
+            f"[red]Invalid output format:[/red] {output_format!r}. Choose 'json' or 'markdown'."
+        )
+        raise typer.Exit(code=1)
+
     from rich.progress import Progress
 
     from hwcc.bench.dataset import load_dataset
     from hwcc.bench.providers import create_provider
-    from hwcc.bench.report import generate_report, print_report, save_report
+    from hwcc.bench.report import (
+        generate_report,
+        generate_report_markdown,
+        print_report,
+        save_report,
+    )
     from hwcc.bench.runner import prepare_conditions, run_benchmark
 
     # Load dataset
@@ -970,28 +990,39 @@ def bench_run(
             progress.update(task_ids[condition_name], completed=idx + 1)  # type: ignore[arg-type]
 
         try:
-            runs = run_benchmark(
+            bench_runs = run_benchmark(
                 dataset=dataset,
                 provider=llm,
                 conditions=filtered,
                 delay_seconds=delay,
                 progress_callback=on_progress,
+                num_runs=runs,
             )
         except BenchmarkError as e:
             console.print(f"\n[red]Benchmark error:[/red] {e}")
             raise typer.Exit(code=1) from e
 
     # Generate and display report
-    report = generate_report(runs, chip=dataset.chip)
+    report = generate_report(bench_runs, chip=dataset.chip, dataset=dataset)
     print_report(report, console=console)
 
-    # Save report
-    out_path = Path(output) if output else Path(f"{dataset.name.lower()}_report.json")
+    # Save report (JSON always)
+    json_path = Path(output) if output else Path(f"{dataset.name.lower()}_report.json")
     try:
-        save_report(report, out_path)
-        console.print(f"[green]Report saved to:[/green] {out_path}")
+        save_report(report, json_path)
+        console.print(f"[green]Report saved to:[/green] {json_path}")
     except BenchmarkError as e:
         console.print(f"[yellow]Warning: failed to save report:[/yellow] {e}")
+
+    # Save markdown if requested
+    if output_format == "markdown":
+        md_path = json_path.with_suffix(".md")
+        try:
+            md_content = generate_report_markdown(report)
+            md_path.write_text(md_content, encoding="utf-8")
+            console.print(f"[green]Markdown report saved to:[/green] {md_path}")
+        except OSError as e:
+            console.print(f"[yellow]Warning: failed to save markdown:[/yellow] {e}")
 
 
 @bench_app.command(name="report")

@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING, Any
 from rich.console import Console
 from rich.table import Table
 
-from hwcc.bench.scoring import compute_metrics, wilson_ci
-from hwcc.bench.types import BenchMetrics, BenchReport, BenchResponse, BenchRun
+from hwcc.bench.scoring import compute_metrics_with_difficulty
+from hwcc.bench.types import BenchDataset, BenchMetrics, BenchReport, BenchResponse, BenchRun
 from hwcc.exceptions import BenchmarkError
 
 if TYPE_CHECKING:
@@ -21,10 +21,26 @@ __all__ = ["generate_report", "generate_report_markdown", "print_report", "save_
 
 logger = logging.getLogger(__name__)
 
+# Blended cost per 1M tokens (approximate input+output average).
+# Last updated: 2026-03. For precise billing, check provider dashboards.
+_COST_PER_1M_TOKENS: dict[str, float] = {
+    "anthropic": 9.0,  # ~$3 input + $15 output blended
+    "openai": 10.0,  # ~$5 input + $15 output blended
+    "ollama": 0.0,
+    "claude_code": 0.0,  # subscription-based
+}
+
+
+def _estimate_cost(provider: str, total_tokens: int) -> float:
+    """Estimate cost in USD from provider name and total token count."""
+    rate = _COST_PER_1M_TOKENS.get(provider, 0.0)
+    return total_tokens * rate / 1_000_000
+
 
 def generate_report(
     runs: list[BenchRun],
     chip: str = "",
+    dataset: BenchDataset | None = None,
 ) -> BenchReport:
     """Generate a benchmark report from run results.
 
@@ -33,6 +49,7 @@ def generate_report(
     Args:
         runs: List of benchmark runs (one per condition).
         chip: Chip name for the report header.
+        dataset: Optional dataset for per-difficulty breakdown.
 
     Returns:
         Complete BenchReport with metrics and comparisons.
@@ -48,6 +65,11 @@ def generate_report(
 
     dataset_name = runs[0].dataset_name
 
+    # Build difficulty map from dataset (if provided)
+    difficulty_map: dict[str, str] | None = None
+    if dataset:
+        difficulty_map = {q.id: q.difficulty for q in dataset.questions}
+
     # Group runs by condition (supports num_runs > 1)
     runs_by_condition: dict[str, list[BenchRun]] = {}
     for run in runs:
@@ -59,21 +81,8 @@ def generate_report(
         pooled: list[BenchResponse] = []
         for r in condition_runs:
             pooled.extend(r.responses)
-        base = compute_metrics(pooled)
-        ci_lower, ci_upper = wilson_ci(base.correct, base.total)
-        metrics[condition_name] = BenchMetrics(
-            total=base.total,
-            correct=base.correct,
-            accuracy=base.accuracy,
-            hallucination_rate=base.hallucination_rate,
-            by_category=base.by_category,
-            avg_latency_ms=base.avg_latency_ms,
-            total_tokens=base.total_tokens,
-            avg_partial_score=base.avg_partial_score,
-            expected_calibration_error=base.expected_calibration_error,
-            ci_lower=ci_lower,
-            ci_upper=ci_upper,
-            by_difficulty=base.by_difficulty,
+        metrics[condition_name] = compute_metrics_with_difficulty(
+            pooled, difficulty_map
         )
 
     # Compute comparison (delta between no_context and best hwcc condition)
@@ -203,6 +212,38 @@ def print_report(report: BenchReport, console: Console | None = None) -> None:
 
         console.print(cat_table)
 
+    # Per-difficulty breakdown
+    if any(m.by_difficulty for m in report.metrics.values()):
+        console.print()
+        diff_table = Table(title="Accuracy by Difficulty", show_lines=True)
+        diff_table.add_column("Difficulty", style="bold")
+
+        condition_names = list(report.metrics.keys())
+        for name in condition_names:
+            diff_table.add_column(name, justify="right")
+
+        all_difficulties: set[str] = set()
+        for m in report.metrics.values():
+            all_difficulties.update(m.by_difficulty.keys())
+
+        difficulty_order = {"easy": 0, "medium": 1, "hard": 2}
+        for diff in sorted(all_difficulties, key=lambda d: difficulty_order.get(d, 99)):
+            diff_row: list[str] = [diff]
+            for name in condition_names:
+                m = report.metrics[name]
+                val = m.by_difficulty.get(diff, 0.0)
+                val_str = f"{val:.1%}"
+                if val >= 0.9:
+                    val_str = f"[green]{val_str}[/green]"
+                elif val >= 0.5:
+                    val_str = f"[yellow]{val_str}[/yellow]"
+                else:
+                    val_str = f"[red]{val_str}[/red]"
+                diff_row.append(val_str)
+            diff_table.add_row(*diff_row)
+
+        console.print(diff_table)
+
     # Comparison summary
     if report.comparison:
         console.print()
@@ -239,6 +280,15 @@ def print_report(report: BenchReport, console: Console | None = None) -> None:
                     ece_str = f"[red]{ece_str}[/red]"
                 console.print(f"  {cond_name}: ECE = {ece_str}")
 
+    # Cost estimate
+    total_tokens = sum(r.total_tokens for r in report.runs)
+    if total_tokens > 0:
+        provider_name = report.runs[0].provider
+        cost = _estimate_cost(provider_name, total_tokens)
+        if cost > 0:
+            console.print()
+            console.print(f"[dim]Estimated cost: ${cost:.2f}[/dim]")
+
     console.print()
 
 
@@ -262,6 +312,15 @@ def generate_report_markdown(report: BenchReport) -> str:
         f"**Model:** {report.runs[0].model} ({report.runs[0].provider})"
     )
     lines.append(f"**Chip:** {report.chip}")
+
+    # Cost estimate
+    total_tokens = sum(r.total_tokens for r in report.runs)
+    if total_tokens > 0:
+        provider_name = report.runs[0].provider
+        cost = _estimate_cost(provider_name, total_tokens)
+        if cost > 0:
+            lines.append(f"**Estimated Cost:** ${cost:.2f}")
+
     lines.append("")
 
     # Summary table
@@ -286,6 +345,33 @@ def generate_report_markdown(report: BenchReport) -> str:
         )
 
     lines.append("")
+
+    # Per-difficulty table
+    if any(m.by_difficulty for m in report.metrics.values()):
+        lines.append("## Accuracy by Difficulty")
+        lines.append("")
+
+        condition_names = list(report.metrics.keys())
+        header = "| Difficulty | " + " | ".join(condition_names) + " |"
+        sep = "|------------|" + "|".join("-" * (len(n) + 2) for n in condition_names) + "|"
+        lines.append(header)
+        lines.append(sep)
+
+        all_difficulties: set[str] = set()
+        for m in report.metrics.values():
+            all_difficulties.update(m.by_difficulty.keys())
+
+        difficulty_order = {"easy": 0, "medium": 1, "hard": 2}
+        for diff in sorted(all_difficulties, key=lambda d: difficulty_order.get(d, 99)):
+            row_parts = [f"| {diff} "]
+            for name in condition_names:
+                m = report.metrics[name]
+                val = m.by_difficulty.get(diff, 0.0)
+                row_parts.append(f"| {val:.1%} ")
+            row_parts.append("|")
+            lines.append("".join(row_parts))
+
+        lines.append("")
 
     # Impact summary (comparison)
     if report.comparison:

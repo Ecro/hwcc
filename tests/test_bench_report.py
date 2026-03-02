@@ -11,8 +11,15 @@ from rich.console import Console
 if TYPE_CHECKING:
     from pathlib import Path
 
-from hwcc.bench.report import generate_report, load_report, print_report, save_report
-from hwcc.bench.types import BenchResponse, BenchRun
+from hwcc.bench.report import (
+    _estimate_cost,
+    generate_report,
+    generate_report_markdown,
+    load_report,
+    print_report,
+    save_report,
+)
+from hwcc.bench.types import BenchDataset, BenchQuestion, BenchResponse, BenchRun
 from hwcc.exceptions import BenchmarkError
 
 
@@ -396,3 +403,164 @@ class TestReportPerQuestionDetail:
 
         assert len(loaded.runs[0].responses) == 3
         assert loaded.runs[0].responses[0].question_id == "q0_base_address"
+
+
+def _make_dataset(questions: list[BenchQuestion] | None = None) -> BenchDataset:
+    """Helper to create a test dataset with difficulty data."""
+    if questions is None:
+        questions = [
+            BenchQuestion(
+                id=f"q{i}_base_address" if i % 2 == 0 else f"q{i}_offset",
+                category="base_address" if i % 2 == 0 else "register_offset",
+                peripheral="SPI1",
+                register="" if i % 2 == 0 else "CR1",
+                field_name="",
+                question=f"Question {i}",
+                answer="0x40013000",
+                answer_format="hex",
+                difficulty=["easy", "medium", "hard"][i % 3],
+            )
+            for i in range(10)
+        ]
+    return BenchDataset(
+        name="TEST_RK",
+        chip="TESTCHIP",
+        source_svd="test.svd",
+        question_count=len(questions),
+        questions=tuple(questions),
+        created="2026-03-02T00:00:00+00:00",
+        categories=("base_address", "register_offset"),
+    )
+
+
+class TestPerDifficulty:
+    """Tests for per-difficulty metrics in report."""
+
+    def test_generate_report_with_dataset_populates_difficulty(self):
+        dataset = _make_dataset()
+        runs = [_make_run("no_context", correct_count=5, total=10)]
+        report = generate_report(runs, chip="TEST", dataset=dataset)
+
+        m = report.metrics["no_context"]
+        assert len(m.by_difficulty) > 0
+        assert all(d in ("easy", "medium", "hard") for d in m.by_difficulty)
+
+    def test_generate_report_without_dataset_has_empty_difficulty(self):
+        runs = [_make_run("no_context", correct_count=5, total=10)]
+        report = generate_report(runs, chip="TEST")
+
+        m = report.metrics["no_context"]
+        assert m.by_difficulty == {}
+
+    def test_print_report_shows_difficulty_table(self):
+        dataset = _make_dataset()
+        runs = [_make_run("no_context", correct_count=5, total=10)]
+        report = generate_report(runs, chip="TEST", dataset=dataset)
+
+        buf = StringIO()
+        c = Console(file=buf, force_terminal=False, width=120)
+        print_report(report, console=c)
+        output = buf.getvalue()
+        assert "Accuracy by Difficulty" in output
+
+    def test_markdown_contains_difficulty_table(self):
+        dataset = _make_dataset()
+        runs = [_make_run("no_context", correct_count=5, total=10)]
+        report = generate_report(runs, chip="TEST", dataset=dataset)
+
+        md = generate_report_markdown(report)
+        assert "Accuracy by Difficulty" in md
+
+    def test_difficulty_round_trips_through_json(self, tmp_path: Path):
+        dataset = _make_dataset()
+        runs = [_make_run("no_context", correct_count=5, total=10)]
+        report = generate_report(runs, chip="TEST", dataset=dataset)
+
+        json_path = tmp_path / "report.json"
+        save_report(report, json_path)
+        loaded = load_report(json_path)
+
+        orig_diff = report.metrics["no_context"].by_difficulty
+        loaded_diff = loaded.metrics["no_context"].by_difficulty
+        assert set(loaded_diff.keys()) == set(orig_diff.keys())
+        for k in orig_diff:
+            assert loaded_diff[k] == pytest.approx(orig_diff[k])
+
+
+class TestCostTracking:
+    """Tests for cost estimation."""
+
+    def test_estimate_cost_anthropic(self):
+        cost = _estimate_cost("anthropic", 1_000_000)
+        assert cost == pytest.approx(9.0)
+
+    def test_estimate_cost_ollama_is_free(self):
+        cost = _estimate_cost("ollama", 1_000_000)
+        assert cost == 0.0
+
+    def test_estimate_cost_unknown_provider(self):
+        cost = _estimate_cost("unknown_provider", 1_000_000)
+        assert cost == 0.0
+
+    def test_estimate_cost_zero_tokens(self):
+        cost = _estimate_cost("anthropic", 0)
+        assert cost == 0.0
+
+    def test_print_report_shows_cost_for_anthropic(self):
+        """Cost should appear when provider has a cost rate and tokens > 0."""
+        responses = (
+            BenchResponse(
+                "q0_base_address", "0x40013000", "0x40013000",
+                True, 1.0, 100.0,
+            ),
+        )
+        run = BenchRun(
+            dataset_name="TEST_RK",
+            condition="no_context",
+            model="test",
+            provider="anthropic",
+            temperature=0.0,
+            responses=responses,
+            started="2026-03-02T00:00:00+00:00",
+            completed="2026-03-02T00:01:00+00:00",
+            total_tokens=100_000,
+        )
+        report = generate_report([run], chip="TEST")
+        buf = StringIO()
+        c = Console(file=buf, force_terminal=False, width=120)
+        print_report(report, console=c)
+        output = buf.getvalue()
+        assert "Estimated cost" in output
+
+    def test_print_report_no_cost_for_ollama(self):
+        """Cost should not appear for free providers."""
+        runs = [_make_run("no_context", correct_count=5, total=10)]
+        # _make_run uses provider="test" which has $0 rate
+        report = generate_report(runs, chip="TEST")
+        buf = StringIO()
+        c = Console(file=buf, force_terminal=False, width=120)
+        print_report(report, console=c)
+        output = buf.getvalue()
+        assert "Estimated cost" not in output
+
+    def test_markdown_shows_cost_for_anthropic(self):
+        responses = (
+            BenchResponse(
+                "q0_base_address", "0x40013000", "0x40013000",
+                True, 1.0, 100.0,
+            ),
+        )
+        run = BenchRun(
+            dataset_name="TEST_RK",
+            condition="no_context",
+            model="test",
+            provider="anthropic",
+            temperature=0.0,
+            responses=responses,
+            started="2026-03-02T00:00:00+00:00",
+            completed="2026-03-02T00:01:00+00:00",
+            total_tokens=100_000,
+        )
+        report = generate_report([run], chip="TEST")
+        md = generate_report_markdown(report)
+        assert "Estimated Cost" in md
