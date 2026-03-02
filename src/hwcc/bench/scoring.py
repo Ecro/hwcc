@@ -466,11 +466,7 @@ def _compute_ece(
 
     Returns None if no responses have confidence data.
     """
-    with_conf = [
-        (r.correct, r.confidence)
-        for r in responses
-        if r.confidence is not None
-    ]
+    with_conf = [(r.correct, r.confidence) for r in responses if r.confidence is not None]
     if not with_conf:
         return None
 
@@ -624,9 +620,7 @@ def compute_metrics_with_difficulty(
             by_difficulty[diff].append(r.correct)
 
     diff_accuracy = {
-        diff: sum(results) / len(results)
-        for diff, results in by_difficulty.items()
-        if results
+        diff: sum(results) / len(results) for diff, results in by_difficulty.items() if results
     }
 
     return BenchMetrics(

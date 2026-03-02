@@ -260,9 +260,7 @@ class TestErrorHandling:
 
 
 class TestEdgeCases:
-    def test_empty_dts(
-        self, parser: DeviceTreeParser, config: HwccConfig, tmp_path: Path
-    ) -> None:
+    def test_empty_dts(self, parser: DeviceTreeParser, config: HwccConfig, tmp_path: Path) -> None:
         dts = tmp_path / "empty.dts"
         dts.write_text("", encoding="utf-8")
         result = parser.parse(dts, config)
@@ -295,8 +293,7 @@ class TestEdgeCases:
         """Compatible strings spanning multiple lines should be extracted."""
         dts = tmp_path / "multiline.dts"
         dts.write_text(
-            '/dts-v1/;\n/ {\n\tcompatible = "custom,board",\n'
-            '\t\t     "fsl,imx8mp";\n};\n',
+            '/dts-v1/;\n/ {\n\tcompatible = "custom,board",\n\t\t     "fsl,imx8mp";\n};\n',
             encoding="utf-8",
         )
         result = parser.parse(dts, config)

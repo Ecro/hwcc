@@ -532,8 +532,7 @@ def search(
 
     if store.count() == 0:
         console.print(
-            "[yellow]No documents indexed yet.[/yellow]"
-            " Run [bold]hwcc add[/bold] first."
+            "[yellow]No documents indexed yet.[/yellow] Run [bold]hwcc add[/bold] first."
         )
         raise typer.Exit(code=0)
 
@@ -541,7 +540,11 @@ def search(
 
     try:
         results, elapsed = engine.search(
-            query, k=top_k, chip=chip, doc_type=doc_type, peripheral=peripheral,
+            query,
+            k=top_k,
+            chip=chip,
+            doc_type=doc_type,
+            peripheral=peripheral,
         )
     except HwccError as e:
         console.print(f"[red]Search failed:[/red] {e}")
@@ -662,8 +665,7 @@ def catalog_list(
             table.add_row(entry.name, entry.vendor)
         console.print(table)
         console.print(
-            "\n[dim]Use [bold]hwcc catalog add <device>[/bold]"
-            " to add to your project.[/dim]"
+            "\n[dim]Use [bold]hwcc catalog add <device>[/bold] to add to your project.[/dim]"
         )
 
     elif vendor:
@@ -689,9 +691,7 @@ def catalog_list(
         for name, count in vendors:
             table.add_row(name, str(count))
         console.print(table)
-        console.print(
-            "\n[dim]Use [bold]hwcc catalog list <query>[/bold] to search devices.[/dim]"
-        )
+        console.print("\n[dim]Use [bold]hwcc catalog list <query>[/bold] to search devices.[/dim]")
 
 
 @catalog_app.command(name="add")
@@ -767,7 +767,9 @@ def catalog_add(
                 store.delete(doc_id)
             except HwccError as e:
                 logging.getLogger(__name__).warning(
-                    "Failed to remove old chunks for %s: %s", doc_id, e,
+                    "Failed to remove old chunks for %s: %s",
+                    doc_id,
+                    e,
                 )
 
         try:
@@ -916,7 +918,6 @@ def bench_run(
         str,
         typer.Option("--output-format", help="Output format: json or markdown"),
     ] = "json",
-
 ) -> None:
     """Run benchmark against an LLM provider."""
     if output_format not in ("json", "markdown"):

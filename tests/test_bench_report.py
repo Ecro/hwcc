@@ -238,11 +238,24 @@ class TestSaveLoadReport:
     def test_round_trip_preserves_partial_score(self, tmp_path: Path):
         responses = (
             BenchResponse(
-                "q0_base_address", "0x40013000", "0x40013000",
-                True, 1.0, 100.0, 1.0, 0.9,
+                "q0_base_address",
+                "0x40013000",
+                "0x40013000",
+                True,
+                1.0,
+                100.0,
+                1.0,
+                0.9,
             ),
             BenchResponse(
-                "q1_offset", "wrong", "", False, 0.0, 110.0, 0.5, 0.3,
+                "q1_offset",
+                "wrong",
+                "",
+                False,
+                0.0,
+                110.0,
+                0.5,
+                0.3,
             ),
         )
         run = BenchRun(
@@ -283,11 +296,24 @@ class TestPrintReportCalibration:
     def test_print_with_confidence_data(self):
         responses = (
             BenchResponse(
-                "q0_base_address", "0x40013000", "0x40013000",
-                True, 1.0, 100.0, 1.0, 0.9,
+                "q0_base_address",
+                "0x40013000",
+                "0x40013000",
+                True,
+                1.0,
+                100.0,
+                1.0,
+                0.9,
             ),
             BenchResponse(
-                "q1_offset", "wrong", "", False, 0.0, 110.0, 0.5, 0.8,
+                "q1_offset",
+                "wrong",
+                "",
+                False,
+                0.0,
+                110.0,
+                0.5,
+                0.8,
             ),
         )
         run = BenchRun(
@@ -510,8 +536,12 @@ class TestCostTracking:
         """Cost should appear when provider has a cost rate and tokens > 0."""
         responses = (
             BenchResponse(
-                "q0_base_address", "0x40013000", "0x40013000",
-                True, 1.0, 100.0,
+                "q0_base_address",
+                "0x40013000",
+                "0x40013000",
+                True,
+                1.0,
+                100.0,
             ),
         )
         run = BenchRun(
@@ -546,8 +576,12 @@ class TestCostTracking:
     def test_markdown_shows_cost_for_anthropic(self):
         responses = (
             BenchResponse(
-                "q0_base_address", "0x40013000", "0x40013000",
-                True, 1.0, 100.0,
+                "q0_base_address",
+                "0x40013000",
+                "0x40013000",
+                True,
+                1.0,
+                100.0,
             ),
         )
         run = BenchRun(

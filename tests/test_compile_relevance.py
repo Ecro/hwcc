@@ -17,6 +17,7 @@ from hwcc.types import Chunk, ChunkMetadata
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_chunk(chunk_id: str, content: str) -> Chunk:
     """Create a minimal Chunk for scoring tests."""
     return Chunk(
@@ -115,9 +116,7 @@ class TestBuildPeripheralKeywords:
 
     def test_description_words(self) -> None:
         """Extracts non-stopword tokens from description."""
-        kw = build_peripheral_keywords(
-            "SPI1", description="Serial peripheral interface"
-        )
+        kw = build_peripheral_keywords("SPI1", description="Serial peripheral interface")
         assert "serial" in kw
         assert "peripheral" in kw
         assert "interface" in kw
@@ -210,18 +209,25 @@ class TestRankChunks:
     def test_filters_below_threshold(self) -> None:
         """Chunks scoring below min_score are excluded."""
         irrelevant = _make_chunk("chunk_001", "GPIO clock tree configuration")
-        keywords = {"spi1", "spi", "cr1", "serial", "interface",
-                     "mosi", "miso", "sck", "bidimode", "spe"}
+        keywords = {
+            "spi1",
+            "spi",
+            "cr1",
+            "serial",
+            "interface",
+            "mosi",
+            "miso",
+            "sck",
+            "bidimode",
+            "spe",
+        }
 
         result = rank_chunks([irrelevant], keywords, min_score=0.1)
         assert len(result) == 0
 
     def test_respects_max_chunks(self) -> None:
         """At most max_chunks are returned."""
-        chunks = [
-            _make_chunk(f"chunk_{i:03d}", f"SPI1 SPI content block {i}")
-            for i in range(10)
-        ]
+        chunks = [_make_chunk(f"chunk_{i:03d}", f"SPI1 SPI content block {i}") for i in range(10)]
         keywords = {"spi1", "spi"}
         result = rank_chunks(chunks, keywords, max_chunks=3)
         assert len(result) == 3

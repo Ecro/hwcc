@@ -116,22 +116,26 @@ class TestFormatCitation:
 class TestBuildTitleMap:
     def test_builds_from_manifest(self):
         manifest = Manifest()
-        manifest.add_document(DocumentEntry(
-            id="rm0090_pdf",
-            path="/docs/RM0090.pdf",
-            doc_type="pdf",
-            hash="abc123",
-            added="2026-01-01",
-            chunks=50,
-        ))
-        manifest.add_document(DocumentEntry(
-            id="stm32_svd",
-            path="/docs/stm32f407.svd",
-            doc_type="svd",
-            hash="def456",
-            added="2026-01-01",
-            chunks=100,
-        ))
+        manifest.add_document(
+            DocumentEntry(
+                id="rm0090_pdf",
+                path="/docs/RM0090.pdf",
+                doc_type="pdf",
+                hash="abc123",
+                added="2026-01-01",
+                chunks=50,
+            )
+        )
+        manifest.add_document(
+            DocumentEntry(
+                id="stm32_svd",
+                path="/docs/stm32f407.svd",
+                doc_type="svd",
+                hash="def456",
+                added="2026-01-01",
+                chunks=100,
+            )
+        )
 
         result = build_title_map(manifest)
         assert result["rm0090_pdf"] == "RM0090"
@@ -144,13 +148,15 @@ class TestBuildTitleMap:
 
     def test_hyphens_and_underscores_replaced(self):
         manifest = Manifest()
-        manifest.add_document(DocumentEntry(
-            id="my_doc",
-            path="/docs/my-cool_datasheet.pdf",
-            doc_type="pdf",
-            hash="aaa",
-            added="2026-01-01",
-        ))
+        manifest.add_document(
+            DocumentEntry(
+                id="my_doc",
+                path="/docs/my-cool_datasheet.pdf",
+                doc_type="pdf",
+                hash="aaa",
+                added="2026-01-01",
+            )
+        )
 
         result = build_title_map(manifest)
         assert result["my_doc"] == "my cool datasheet"

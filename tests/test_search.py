@@ -81,7 +81,9 @@ class TestBuildWhere:
 
     def test_three_filters_uses_and(self) -> None:
         result = SearchEngine._build_where(
-            chip="STM32F407", doc_type="svd", peripheral="GPIOA",
+            chip="STM32F407",
+            doc_type="svd",
+            peripheral="GPIOA",
         )
         assert result is not None
         assert "$and" in result

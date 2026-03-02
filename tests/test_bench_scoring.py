@@ -515,13 +515,15 @@ class TestRealisticLLMResponses:
 
     def test_verbose_explanation_hex(self):
         result = extract_answer(
-            "Based on RM0090, the base address of SPI1 is 0x40013000", "hex",
+            "Based on RM0090, the base address of SPI1 is 0x40013000",
+            "hex",
         )
         assert result == "0x40013000"
 
     def test_multi_value_picks_first_hex(self):
         result = extract_answer(
-            "0x40013000 or possibly 0x40014000", "hex",
+            "0x40013000 or possibly 0x40014000",
+            "hex",
         )
         assert result == "0x40013000"
 
@@ -558,13 +560,15 @@ class TestRealisticLLMResponses:
 
     def test_bit_range_with_bracket_in_sentence(self):
         result = extract_answer(
-            "The BR field occupies bit positions [5:3] in CR1", "bit_range",
+            "The BR field occupies bit positions [5:3] in CR1",
+            "bit_range",
         )
         assert result == "[5:3]"
 
     def test_access_read_only_long_form(self):
         result = extract_answer(
-            "The register has read only access", "access_code",
+            "The register has read only access",
+            "access_code",
         )
         assert result == "RO"
 

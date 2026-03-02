@@ -154,9 +154,7 @@ def generate_dataset(
 
     questions: list[BenchQuestion] = []
     for peripheral in peripherals:
-        questions.extend(
-            _generate_peripheral_questions(peripheral, chip_name)
-        )
+        questions.extend(_generate_peripheral_questions(peripheral, chip_name))
 
     categories = tuple(sorted({q.category for q in questions}))
     dataset = BenchDataset(
@@ -326,7 +324,8 @@ def _generate_register_questions(
                 answer=f"0x{reg.reset_value:08X}",
                 answer_format="hex",
                 difficulty=_compute_difficulty(
-                    "reset_value", peripheral_name,
+                    "reset_value",
+                    peripheral_name,
                     has_nonzero_reset=has_nonzero_reset,
                 ),
             )
@@ -408,7 +407,8 @@ def _generate_field_questions(
                 answer=bit_str,
                 answer_format="bit_range",
                 difficulty=_compute_difficulty(
-                    "bit_field", peripheral_name,
+                    "bit_field",
+                    peripheral_name,
                     is_single_bit=is_single_bit,
                 ),
             )

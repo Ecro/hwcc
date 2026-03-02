@@ -234,9 +234,12 @@ class ClaudeCodeProvider(BaseBenchProvider):
         cmd = [
             "claude",
             "-p",
-            "--output-format", "json",
-            "--system-prompt", system_prompt,
-            "--model", self._model,
+            "--output-format",
+            "json",
+            "--system-prompt",
+            system_prompt,
+            "--model",
+            self._model,
             user_prompt,
         ]
 
@@ -261,10 +264,7 @@ class ClaudeCodeProvider(BaseBenchProvider):
         latency = (time.monotonic() - t0) * 1000
 
         if result.returncode != 0:
-            msg = (
-                f"Claude Code CLI exited with code {result.returncode}: "
-                f"{result.stderr.strip()}"
-            )
+            msg = f"Claude Code CLI exited with code {result.returncode}: {result.stderr.strip()}"
             raise BenchmarkError(msg)
 
         try:

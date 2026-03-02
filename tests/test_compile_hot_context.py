@@ -629,7 +629,10 @@ class TestHotContextPins:
             pins={"spi1_sck": "PA5", "uart1_tx": "PA9"},
         )
         compiler, store = _setup_project(
-            project_dir, full_manifest, full_store_metadata, config,
+            project_dir,
+            full_manifest,
+            full_store_metadata,
+            config,
         )
         paths = compiler.compile(store, config)
 
@@ -646,7 +649,10 @@ class TestHotContextPins:
         full_store_metadata: list[ChunkMetadata],
     ) -> None:
         compiler, store = _setup_project(
-            project_dir, full_manifest, full_store_metadata, full_config,
+            project_dir,
+            full_manifest,
+            full_store_metadata,
+            full_config,
         )
         paths = compiler.compile(store, full_config)
 
@@ -668,7 +674,10 @@ class TestHotContextPins:
             pins={"spi1_sck": "PA5", "spi1_mosi": "PA7", "i2c1_scl": "PB6"},
         )
         compiler, store = _setup_project(
-            project_dir, full_manifest, full_store_metadata, config,
+            project_dir,
+            full_manifest,
+            full_store_metadata,
+            config,
         )
         paths = compiler.compile(store, config)
 

@@ -383,7 +383,7 @@ class TestCompileContext:
         assert ctx.clock_mhz == 168
         assert ctx.rtos == "FreeRTOS"
         assert ctx.register_access == "HAL only"
-        assert ctx.hwcc_version == "0.1.0"
+        assert ctx.hwcc_version == "0.2.0"
         assert ctx.generated_at  # Should have a timestamp
 
     def test_from_config_bsp_fields(self):

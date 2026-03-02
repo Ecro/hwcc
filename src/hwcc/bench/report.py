@@ -81,9 +81,7 @@ def generate_report(
         pooled: list[BenchResponse] = []
         for r in condition_runs:
             pooled.extend(r.responses)
-        metrics[condition_name] = compute_metrics_with_difficulty(
-            pooled, difficulty_map
-        )
+        metrics[condition_name] = compute_metrics_with_difficulty(pooled, difficulty_map)
 
     # Compute comparison (delta between no_context and best hwcc condition)
     comparison: dict[str, float] = {}
@@ -262,9 +260,7 @@ def print_report(report: BenchReport, console: Console | None = None) -> None:
         )
 
     # Calibration summary (if any condition has ECE data)
-    has_ece = any(
-        m.expected_calibration_error is not None for m in report.metrics.values()
-    )
+    has_ece = any(m.expected_calibration_error is not None for m in report.metrics.values())
     if has_ece:
         console.print()
         console.print("[bold]Confidence Calibration[/bold]")
@@ -308,9 +304,7 @@ def generate_report_markdown(report: BenchReport) -> str:
     lines.append(f"# HwBench Report — {report.chip}")
     lines.append("")
     lines.append(f"**Dataset:** {report.dataset_name}")
-    lines.append(
-        f"**Model:** {report.runs[0].model} ({report.runs[0].provider})"
-    )
+    lines.append(f"**Model:** {report.runs[0].model} ({report.runs[0].provider})")
     lines.append(f"**Chip:** {report.chip}")
 
     # Cost estimate
@@ -326,12 +320,8 @@ def generate_report_markdown(report: BenchReport) -> str:
     # Summary table
     lines.append("## Results")
     lines.append("")
-    lines.append(
-        "| Condition | Accuracy | 95% CI | Partial | Correct | Total |"
-    )
-    lines.append(
-        "|-----------|----------|--------|---------|---------|-------|"
-    )
+    lines.append("| Condition | Accuracy | 95% CI | Partial | Correct | Total |")
+    lines.append("|-----------|----------|--------|---------|---------|-------|")
 
     for condition_name, m in report.metrics.items():
         ci_str = f"[{m.ci_lower:.1%}, {m.ci_upper:.1%}]"
@@ -381,10 +371,7 @@ def generate_report_markdown(report: BenchReport) -> str:
 
         lines.append("## Impact Summary")
         lines.append("")
-        lines.append(
-            f"- **Accuracy:** {baseline_acc:.1%} → {best_acc:.1%} "
-            f"(+{delta:.1%})"
-        )
+        lines.append(f"- **Accuracy:** {baseline_acc:.1%} → {best_acc:.1%} (+{delta:.1%})")
         lines.append("")
 
     # Per-question detail
@@ -398,12 +385,7 @@ def generate_report_markdown(report: BenchReport) -> str:
         lines.append("|----------|---------|--------|----------|")
         for resp in run.responses:
             correct_mark = "Y" if resp.correct else "N"
-            lines.append(
-                f"| {resp.question_id} "
-                f"| {correct_mark} "
-                f"| {resp.extracted_answer} "
-                f"| — |"
-            )
+            lines.append(f"| {resp.question_id} | {correct_mark} | {resp.extracted_answer} | — |")
         lines.append("")
 
     return "\n".join(lines)

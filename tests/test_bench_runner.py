@@ -144,7 +144,9 @@ class TestPrepareConditions:
         (periph_dir / "TIM2.md").write_text("TIM2 data", encoding="utf-8")
 
         conditions = prepare_conditions(
-            context_dir, chip="TESTCHIP", peripheral_names=["SPI1"],
+            context_dir,
+            chip="TESTCHIP",
+            peripheral_names=["SPI1"],
         )
         # no_context + hwcc_full (filtered)
         assert len(conditions) == 2
@@ -185,7 +187,10 @@ class TestRunBenchmark:
         ]
 
         runs = run_benchmark(
-            dataset, provider, conditions, delay_seconds=0,
+            dataset,
+            provider,
+            conditions,
+            delay_seconds=0,
         )
 
         assert len(runs) == 1
@@ -208,7 +213,10 @@ class TestRunBenchmark:
         ]
 
         runs = run_benchmark(
-            dataset, provider, conditions, delay_seconds=0,
+            dataset,
+            provider,
+            conditions,
+            delay_seconds=0,
         )
 
         assert len(runs) == 2
@@ -223,7 +231,10 @@ class TestRunBenchmark:
         ]
 
         runs = run_benchmark(
-            dataset, provider, conditions, delay_seconds=0,
+            dataset,
+            provider,
+            conditions,
+            delay_seconds=0,
         )
 
         assert len(runs) == 1
@@ -245,8 +256,11 @@ class TestRunBenchmark:
             callback_calls.append((cond_name, idx, total))
 
         run_benchmark(
-            dataset, provider, conditions,
-            delay_seconds=0, progress_callback=on_progress,
+            dataset,
+            provider,
+            conditions,
+            delay_seconds=0,
+            progress_callback=on_progress,
         )
 
         assert len(callback_calls) == 2
@@ -261,7 +275,10 @@ class TestRunBenchmark:
         ]
 
         runs = run_benchmark(
-            dataset, provider, conditions, delay_seconds=0,
+            dataset,
+            provider,
+            conditions,
+            delay_seconds=0,
         )
 
         assert runs[0].total_tokens == 20  # 10 per question * 2 questions
@@ -412,7 +429,11 @@ class TestRunBenchmarkMultiRun:
         ]
 
         runs = run_benchmark(
-            dataset, provider, conditions, delay_seconds=0, num_runs=1,
+            dataset,
+            provider,
+            conditions,
+            delay_seconds=0,
+            num_runs=1,
         )
 
         assert len(runs) == 1
@@ -426,7 +447,11 @@ class TestRunBenchmarkMultiRun:
         ]
 
         runs = run_benchmark(
-            dataset, provider, conditions, delay_seconds=0, num_runs=3,
+            dataset,
+            provider,
+            conditions,
+            delay_seconds=0,
+            num_runs=3,
         )
 
         assert len(runs) == 3
@@ -443,7 +468,11 @@ class TestRunBenchmarkMultiRun:
         ]
 
         runs = run_benchmark(
-            dataset, provider, conditions, delay_seconds=0, num_runs=3,
+            dataset,
+            provider,
+            conditions,
+            delay_seconds=0,
+            num_runs=3,
         )
 
         assert len(runs) == 6
@@ -461,7 +490,11 @@ class TestRunBenchmarkMultiRun:
         ]
 
         run_benchmark(
-            dataset, provider, conditions, delay_seconds=0, num_runs=3,
+            dataset,
+            provider,
+            conditions,
+            delay_seconds=0,
+            num_runs=3,
         )
 
         assert provider._call_count == 6  # 2 questions x 3 runs

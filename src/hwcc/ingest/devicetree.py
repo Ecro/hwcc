@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 MAX_FILE_SIZE: int = 10 * 1024 * 1024  # 10 MB
 
 # Match entire compatible = "...", "...", ...; statement (may span multiple lines)
-_COMPATIBLE_STMT_RE = re.compile(r'compatible\s*=\s*([^;]+);', re.DOTALL)
+_COMPATIBLE_STMT_RE = re.compile(r"compatible\s*=\s*([^;]+);", re.DOTALL)
 # Extract individual quoted strings from a compatible statement
 _QUOTED_STR_RE = re.compile(r'"([^"]+)"')
 
@@ -128,8 +128,13 @@ class DeviceTreeParser(BaseParser):
         if compatibles:
             metadata_pairs.append(("compatibles", ", ".join(compatibles)))
 
-        logger.info("Parsed %s: %d chars, %d compatible strings, chip=%s",
-                     path.name, len(content), len(compatibles), chip or "(none)")
+        logger.info(
+            "Parsed %s: %d chars, %d compatible strings, chip=%s",
+            path.name,
+            len(content),
+            len(compatibles),
+            chip or "(none)",
+        )
 
         return ParseResult(
             doc_id=_make_doc_id(path),

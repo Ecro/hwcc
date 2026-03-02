@@ -182,10 +182,7 @@ class TestPinsConfig:
     def test_load_toml_with_pins_section(self, tmp_path: Path):
         path = tmp_path / "config.toml"
         path.write_text(
-            '[project]\nname = "test"\n\n'
-            "[pins]\n"
-            'spi1_sck = "PA5"\n'
-            'uart1_tx = "PA9"\n',
+            '[project]\nname = "test"\n\n[pins]\nspi1_sck = "PA5"\nuart1_tx = "PA9"\n',
             encoding="utf-8",
         )
         loaded = load_config(path)

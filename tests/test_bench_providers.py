@@ -30,13 +30,23 @@ class TestClaudeCodeProvider:
         assert provider.model_name == "opus"
 
     def test_query_success(self):
-        json_output = json.dumps([
-            {"type": "system", "subtype": "init"},
-            {"type": "assistant", "message": {"content": [{"text": "0x40013000"}]}},
-            {"type": "result", "subtype": "success", "is_error": False, "result": "0x40013000"},
-        ])
+        json_output = json.dumps(
+            [
+                {"type": "system", "subtype": "init"},
+                {"type": "assistant", "message": {"content": [{"text": "0x40013000"}]}},
+                {
+                    "type": "result",
+                    "subtype": "success",
+                    "is_error": False,
+                    "result": "0x40013000",
+                },
+            ]
+        )
         mock_result = subprocess.CompletedProcess(
-            args=[], returncode=0, stdout=json_output, stderr="",
+            args=[],
+            returncode=0,
+            stdout=json_output,
+            stderr="",
         )
         provider = ClaudeCodeProvider(model="sonnet")
 
@@ -69,7 +79,10 @@ class TestClaudeCodeProvider:
 
     def test_query_nonzero_exit(self):
         mock_result = subprocess.CompletedProcess(
-            args=[], returncode=1, stdout="", stderr="Error: something went wrong",
+            args=[],
+            returncode=1,
+            stdout="",
+            stderr="Error: something went wrong",
         )
         provider = ClaudeCodeProvider()
 
@@ -81,7 +94,10 @@ class TestClaudeCodeProvider:
 
     def test_query_invalid_json(self):
         mock_result = subprocess.CompletedProcess(
-            args=[], returncode=0, stdout="not json", stderr="",
+            args=[],
+            returncode=0,
+            stdout="not json",
+            stderr="",
         )
         provider = ClaudeCodeProvider()
 
@@ -103,11 +119,16 @@ class TestClaudeCodeProvider:
 
     def test_query_missing_result_entry(self):
         """If JSON array has no 'result' type entry, text is empty string."""
-        json_output = json.dumps([
-            {"type": "system", "subtype": "init"},
-        ])
+        json_output = json.dumps(
+            [
+                {"type": "system", "subtype": "init"},
+            ]
+        )
         mock_result = subprocess.CompletedProcess(
-            args=[], returncode=0, stdout=json_output, stderr="",
+            args=[],
+            returncode=0,
+            stdout=json_output,
+            stderr="",
         )
         provider = ClaudeCodeProvider()
 
@@ -118,11 +139,16 @@ class TestClaudeCodeProvider:
 
     def test_query_is_error_flag(self):
         """If response has is_error=True, raise BenchmarkError."""
-        json_output = json.dumps([
-            {"type": "result", "is_error": True, "result": "error message"},
-        ])
+        json_output = json.dumps(
+            [
+                {"type": "result", "is_error": True, "result": "error message"},
+            ]
+        )
         mock_result = subprocess.CompletedProcess(
-            args=[], returncode=0, stdout=json_output, stderr="",
+            args=[],
+            returncode=0,
+            stdout=json_output,
+            stderr="",
         )
         provider = ClaudeCodeProvider()
 

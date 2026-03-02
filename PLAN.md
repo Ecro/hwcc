@@ -1,9 +1,9 @@
 # hwcc — Implementation Roadmap
 
-> **Version**: 0.1.0-dev
-> **Date**: 2026-03-01
-> **Status**: Phase 2 complete — core loop works end-to-end
-> **Tests**: 675 | **Source files**: 36 | **Parsers**: 5 (SVD, PDF, Markdown, Text, DTS)
+> **Version**: 0.2.0
+> **Date**: 2026-03-02
+> **Status**: v0.2 complete — quality, search, catalog shipped
+> **Tests**: 1062 | **Source files**: 48 | **Parsers**: 5 (SVD, PDF, Markdown, Text, DTS)
 
 ---
 

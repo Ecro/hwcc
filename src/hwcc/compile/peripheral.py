@@ -38,15 +38,17 @@ _MAX_DETAIL_CHUNKS = 5
 _MAX_USAGE_PATTERNS = 5
 
 # Keywords in section_path that indicate a usage/configuration procedure.
-_USAGE_KEYWORDS: frozenset[str] = frozenset({
-    "initialization",
-    "configuration",
-    "procedure",
-    "setup",
-    "programming",
-    "enable",
-    "how to",
-})
+_USAGE_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "initialization",
+        "configuration",
+        "procedure",
+        "setup",
+        "programming",
+        "enable",
+        "how to",
+    }
+)
 
 
 class PeripheralContextCompiler(BaseCompiler):
@@ -128,10 +130,15 @@ class PeripheralContextCompiler(BaseCompiler):
 
                 # Extract usage patterns first, then exclude from details
                 usage_patterns, usage_ids = self._extract_usage_patterns(
-                    name, non_svd_chunks, chip, title_map=title_map,
+                    name,
+                    non_svd_chunks,
+                    chip,
+                    title_map=title_map,
                 )
                 details = self._gather_peripheral_details(
-                    name, non_svd_chunks, chip,
+                    name,
+                    non_svd_chunks,
+                    chip,
                     title_map=title_map,
                     register_map=register_map,
                     description=description,
@@ -211,7 +218,7 @@ class PeripheralContextCompiler(BaseCompiler):
         filtered: list[tuple[str, str]] = []
         for key, pin in sorted(pins.items()):
             if key.lower().startswith(prefix):
-                signal = key[len(prefix):].upper()
+                signal = key[len(prefix) :].upper()
                 filtered.append((signal, pin))
         return filtered
 
@@ -396,7 +403,10 @@ class PeripheralContextCompiler(BaseCompiler):
         # section_path keywords, so any surviving candidate is relevant.
         keywords = build_peripheral_keywords(peripheral_name)
         candidates = rank_chunks(
-            candidates, keywords, max_chunks=_MAX_USAGE_PATTERNS, min_score=0.0,
+            candidates,
+            keywords,
+            max_chunks=_MAX_USAGE_PATTERNS,
+            min_score=0.0,
         )
 
         # Deduplicate by task name (keep first/highest-ranked occurrence)
@@ -410,7 +420,8 @@ class PeripheralContextCompiler(BaseCompiler):
             else:
                 logger.debug(
                     "Usage pattern dedup: skipped chunk %s (task %r already seen)",
-                    c.chunk_id, task,
+                    c.chunk_id,
+                    task,
                 )
 
         if not selected:

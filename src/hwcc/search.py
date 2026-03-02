@@ -71,7 +71,9 @@ class SearchEngine:
         elapsed = time.monotonic() - start
         logger.info(
             "Search for %r returned %d results in %.2fs",
-            query, len(results), elapsed,
+            query,
+            len(results),
+            elapsed,
         )
         return results, elapsed
 

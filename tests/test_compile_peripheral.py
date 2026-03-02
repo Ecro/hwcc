@@ -332,7 +332,8 @@ class TestPeripheralCompilerBasic:
 
         class BrokenStore(FakeStore):
             def get_chunks(
-                self, where: dict[str, str | dict[str, str]] | None = None,
+                self,
+                where: dict[str, str | dict[str, str]] | None = None,
             ) -> list[Chunk]:
                 msg = "connection lost"
                 raise RuntimeError(msg)
@@ -853,22 +854,26 @@ class TestCitationsInOutput:
         from hwcc.manifest import DocumentEntry, Manifest, save_manifest
 
         manifest = Manifest()
-        manifest.add_document(DocumentEntry(
-            id="test_datasheet",
-            path="/docs/STM32F407_Datasheet.pdf",
-            doc_type="datasheet",
-            hash="abc",
-            added="2026-01-01",
-            chunks=10,
-        ))
-        manifest.add_document(DocumentEntry(
-            id="test_svd",
-            path="/docs/stm32f407.svd",
-            doc_type="svd",
-            hash="def",
-            added="2026-01-01",
-            chunks=50,
-        ))
+        manifest.add_document(
+            DocumentEntry(
+                id="test_datasheet",
+                path="/docs/STM32F407_Datasheet.pdf",
+                doc_type="datasheet",
+                hash="abc",
+                added="2026-01-01",
+                chunks=10,
+            )
+        )
+        manifest.add_document(
+            DocumentEntry(
+                id="test_svd",
+                path="/docs/stm32f407.svd",
+                doc_type="svd",
+                hash="def",
+                added="2026-01-01",
+                chunks=50,
+            )
+        )
         manifest_path = project_dir / ".rag" / "manifest.json"
         save_manifest(manifest, manifest_path)
 
@@ -889,14 +894,16 @@ class TestCitationsInOutput:
         from hwcc.manifest import DocumentEntry, Manifest, save_manifest
 
         manifest = Manifest()
-        manifest.add_document(DocumentEntry(
-            id="test_svd",
-            path="/docs/stm32f407.svd",
-            doc_type="svd",
-            hash="abc",
-            added="2026-01-01",
-            chunks=50,
-        ))
+        manifest.add_document(
+            DocumentEntry(
+                id="test_svd",
+                path="/docs/stm32f407.svd",
+                doc_type="svd",
+                hash="abc",
+                added="2026-01-01",
+                chunks=50,
+            )
+        )
         manifest_path = project_dir / ".rag" / "manifest.json"
         save_manifest(manifest, manifest_path)
 

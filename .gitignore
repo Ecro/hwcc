@@ -28,7 +28,12 @@ htmlcov/
 .ruff_cache/
 
 # hwcc runtime data (regenerable from source docs)
-.rag/index/
+.rag/
+
+# AI tool configs (user-specific)
+.cursor/
+.gemini/
+AGENTS.md
 
 # OS
 .DS_Store

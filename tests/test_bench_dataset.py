@@ -285,9 +285,7 @@ class TestGenerateDataset:
         difficulties = {q.difficulty for q in dataset.questions}
         # Mini SVD has SPI (common) and USART (common) with varied categories,
         # so we expect at least 2 distinct difficulty levels
-        assert len(difficulties) >= 2, (
-            f"All questions have same difficulty: {difficulties}"
-        )
+        assert len(difficulties) >= 2, f"All questions have same difficulty: {difficulties}"
 
 
 class TestSaveLoadDataset:
@@ -355,16 +353,18 @@ class TestSaveLoadDataset:
             "chip": "TEST",
             "source_svd": "/tmp/test.svd",
             "question_count": 1,
-            "questions": [{
-                "id": "spi1_base_address",
-                "category": "base_address",
-                "peripheral": "SPI1",
-                "register": "",
-                "field_name": "",
-                "question": "What is the base address?",
-                "answer": "0x40013000",
-                "answer_format": "hex",
-            }],
+            "questions": [
+                {
+                    "id": "spi1_base_address",
+                    "category": "base_address",
+                    "peripheral": "SPI1",
+                    "register": "",
+                    "field_name": "",
+                    "question": "What is the base address?",
+                    "answer": "0x40013000",
+                    "answer_format": "hex",
+                }
+            ],
             "created": "2026-03-02T00:00:00+00:00",
             "categories": ["base_address"],
         }

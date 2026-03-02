@@ -25,9 +25,7 @@ __all__ = ["CatalogEntry", "CatalogIndex", "download_svd"]
 
 logger = logging.getLogger(__name__)
 
-_GITHUB_RAW_BASE = (
-    "https://raw.githubusercontent.com/cmsis-svd/cmsis-svd-data/main/data"
-)
+_GITHUB_RAW_BASE = "https://raw.githubusercontent.com/cmsis-svd/cmsis-svd-data/main/data"
 _DOWNLOAD_TIMEOUT = 30
 _INDEX_RESOURCE = "svd_catalog.json"
 
@@ -101,9 +99,7 @@ class CatalogIndex:
         q = query.lower()
         v = vendor.lower()
         results = [
-            e for e in self._entries
-            if q in e.name.lower()
-            and (not v or e.vendor.lower() == v)
+            e for e in self._entries if q in e.name.lower() and (not v or e.vendor.lower() == v)
         ]
         results.sort(key=lambda e: (e.vendor, e.name))
         return results

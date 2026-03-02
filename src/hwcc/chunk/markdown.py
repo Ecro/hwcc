@@ -61,20 +61,22 @@ _TABLE_SEP_RE = re.compile(r"^\|[\s:]*-+[\s:]*\|", re.MULTILINE)
 
 # --- Hardware-domain content type taxonomy (TECH_SPEC.md §5.4) ---
 
-CONTENT_TYPES: frozenset[str] = frozenset({
-    "code",
-    "register_table",
-    "register_description",
-    "timing_spec",
-    "config_procedure",
-    "errata",
-    "pin_mapping",
-    "electrical_spec",
-    "api_reference",  # Phase 5 — requires C header parsing
-    "table",
-    "section",
-    "prose",
-})
+CONTENT_TYPES: frozenset[str] = frozenset(
+    {
+        "code",
+        "register_table",
+        "register_description",
+        "timing_spec",
+        "config_procedure",
+        "errata",
+        "pin_mapping",
+        "electrical_spec",
+        "api_reference",  # Phase 5 — requires C header parsing
+        "table",
+        "section",
+        "prose",
+    }
+)
 
 # --- Hardware-domain content type detection patterns ---
 
