@@ -595,15 +595,41 @@ def search(
         console.print()
 
 
-@app.command(hidden=True)
+@app.command()
 def mcp(
-    port: Annotated[
-        int | None,
-        typer.Option("--port", "-p", help="HTTP port (default: stdio)"),
-    ] = None,
+    config: Annotated[
+        bool,
+        typer.Option("--config", help="Print MCP config snippet (JSON) for AI coding tools"),
+    ] = False,
 ) -> None:
-    """Start MCP server."""
-    _not_implemented("mcp")
+    """Start MCP server for dynamic hardware context serving."""
+    if config:
+        import json
+
+        snippet = {
+            "mcpServers": {
+                "hwcc": {
+                    "command": "hwcc",
+                    "args": ["mcp"],
+                }
+            }
+        }
+        typer.echo(json.dumps(snippet, indent=2))
+        return
+
+    pm = ProjectManager()
+    if not pm.is_initialized:
+        console.print("[yellow]No hwcc project found.[/yellow] Run [bold]hwcc init[/bold] first.")
+        raise typer.Exit(code=1)
+
+    try:
+        from hwcc.serve import run_server
+    except ImportError:
+        console.print("[red]MCP support requires extra dependencies.[/red]")
+        console.print("Install with: [bold]pip install hwcc\\[mcp][/bold]")
+        raise typer.Exit(code=1) from None
+
+    run_server(project_root=pm.root)
 
 
 @app.command(name="config", hidden=True)

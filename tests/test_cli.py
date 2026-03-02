@@ -296,12 +296,6 @@ class TestStubCommands:
         assert result.exit_code == 1
         assert "hwcc init" in result.output
 
-    def test_mcp_not_implemented(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.chdir(tmp_path)
-        result = runner.invoke(app, ["mcp"])
-        assert result.exit_code == 0
-        assert "not yet implemented" in result.output
-
     def test_hidden_commands_not_in_help(self):
         result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0
@@ -315,8 +309,7 @@ class TestStubCommands:
         assert "add" in commands_section
         assert "compile" in commands_section
         assert "status" in commands_section
-        # Stub commands should be hidden from Commands section
-        assert "mcp" not in commands_section
+        assert "mcp" in commands_section  # mcp is now visible
         # "context" appears in app description, so check it doesn't appear
         # as a standalone command line in the commands listing
         command_lines = [
@@ -326,3 +319,74 @@ class TestStubCommands:
         ]
         assert "context" not in command_lines
         assert "config" not in command_lines
+
+
+class TestMcp:
+    """Tests for `hwcc mcp` command."""
+
+    def test_mcp_config_prints_valid_json(self):
+        import json
+
+        result = runner.invoke(app, ["mcp", "--config"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "mcpServers" in data
+        assert "hwcc" in data["mcpServers"]
+        server = data["mcpServers"]["hwcc"]
+        assert server["command"] == "hwcc"
+        assert server["args"] == ["mcp"]
+
+    def test_mcp_config_works_without_mcp_package(self, monkeypatch: pytest.MonkeyPatch):
+        """--config only prints JSON, does not need the mcp package."""
+        import json
+
+        # Even if importing hwcc.serve would fail, --config should work
+        result = runner.invoke(app, ["mcp", "--config"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "mcpServers" in data
+
+    def test_mcp_uninitialized_project_exits_with_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(app, ["mcp"])
+        assert result.exit_code == 1
+        assert "No hwcc project found" in result.output
+
+    def test_mcp_missing_package_shows_install_hint(
+        self, initialized_project: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        import sys
+
+        monkeypatch.chdir(initialized_project)
+        # Setting sys.modules entry to None makes Python raise ImportError
+        monkeypatch.setitem(sys.modules, "hwcc.serve", None)
+        result = runner.invoke(app, ["mcp"])
+        assert result.exit_code == 1
+        assert "pip install" in result.output
+
+    def test_mcp_starts_server_with_project_root(
+        self, initialized_project: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.chdir(initialized_project)
+
+        calls: list = []
+
+        def mock_run_server(project_root=None):
+            calls.append(project_root)
+
+        monkeypatch.setattr("hwcc.serve.run_server", mock_run_server)
+        result = runner.invoke(app, ["mcp"])
+        assert result.exit_code == 0
+        assert len(calls) == 1
+        assert calls[0] == initialized_project
+
+    def test_mcp_visible_in_help(self):
+        result = runner.invoke(app, ["--help"])
+        assert result.exit_code == 0
+        output = result.output
+        commands_start = output.find("Commands")
+        assert commands_start != -1
+        commands_section = output[commands_start:]
+        assert "mcp" in commands_section

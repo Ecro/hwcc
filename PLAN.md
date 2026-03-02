@@ -1,9 +1,9 @@
 # hwcc — Implementation Roadmap
 
-> **Version**: 0.2.0
+> **Version**: 0.3.0
 > **Date**: 2026-03-02
-> **Status**: v0.3 in progress — MCP server core shipped
-> **Tests**: 1101 | **Source files**: 49 | **Parsers**: 5 (SVD, PDF, Markdown, Text, DTS)
+> **Status**: v0.3 shipped — MCP server + CLI complete
+> **Tests**: 1106 | **Source files**: 49 | **Parsers**: 5 (SVD, PDF, Markdown, Text, DTS)
 
 ---
 
@@ -11,8 +11,8 @@
 
 ```
 v0.1 MVP ──── Core loop works: hwcc add → hwcc compile → CLAUDE.md    [SHIPPED]
-v0.2 Quality ─ Citations, pins, relevance scoring, SVD catalog, search [PLANNED]
-v0.3 MCP ──── MCP server + dynamic context serving                    [PLANNED]
+v0.2 Quality ─ Citations, pins, relevance scoring, SVD catalog, search [SHIPPED]
+v0.3 MCP ──── MCP server + dynamic context serving                    [SHIPPED]
 v1.0 Polish ── Integrations, docs, PyPI release                       [PLANNED]
 Future ─────── Plugins, vendor extensions, advanced features           [FUTURE]
 ```
@@ -82,9 +82,9 @@ All complete: file type detection, SVD parser (P0 — per-field reset values, ac
 | # | Task | Description |
 |---|------|-------------|
 | ~~3.1~~ | ~~MCP server implementation~~ | ~~3 tools: `hw_search`, `hw_registers`, `hw_context`. 2 resources. stdio transport.~~ ✅ |
-| 3.2 | `hwcc mcp` CLI command | Start server, generate `.claude/mcp.json` config snippet |
+| ~~3.2~~ | ~~`hwcc mcp` CLI command~~ | ~~Start server, `--config` prints JSON config snippet~~ ✅ |
 
-→ Detailed plan: `docs/plans/PLAN_MCP_SERVER.md`
+→ Detailed plans: `docs/plans/PLAN_MCP_SERVER.md`, `docs/plans/PLAN_MCP_CLI.md`
 
 ---
 
