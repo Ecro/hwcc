@@ -21,7 +21,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | **Embed** | `BaseEmbedder` | `src/hwcc/embed/base.py` | `list[Chunk] → list[EmbeddedChunk]` | Done (3 providers) |
 | **Store** | `BaseStore` | `src/hwcc/store/base.py` | `list[EmbeddedChunk] → persisted` | Done (ChromaDB) |
 | **Compile** | `BaseCompiler` | `src/hwcc/compile/base.py` | `store queries → output files` | Done |
-| **Serve** | (v0.3) | `src/hwcc/serve/` | MCP server | Not started |
+| **Serve** | — | `src/hwcc/serve/server.py` | MCP server (FastMCP, stdio) | Done |
 
 ### Parsers (5 built-in)
 

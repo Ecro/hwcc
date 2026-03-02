@@ -1,3 +1,5 @@
-"""Serving layer — MCP server, search, and slash commands."""
+"""Serving layer — MCP server for dynamic context delivery."""
 
-__all__: list[str] = []
+from hwcc.serve.server import run_server
+
+__all__ = ["run_server"]

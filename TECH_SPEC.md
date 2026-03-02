@@ -236,19 +236,26 @@ Pin Assignments · Register Map (SVD with per-field reset values) · Usage Patte
 
 Every section includes **source provenance** — inline citations to exact document, section, and page.
 
-### 5.2 MCP Server [PLANNED — v0.3]
+### 5.2 MCP Server [DONE — v0.3]
 
-Expose hardware context via MCP protocol (stdio transport, official `mcp` Python SDK):
+Expose hardware context via MCP protocol (stdio transport, official `mcp` Python SDK).
+
+Module: `src/hwcc/serve/server.py` — `create_server()` factory returns a `FastMCP` instance with lifespan-managed resources.
 
 | Tool | Purpose |
 |------|---------|
-| `hw_search(query, peripheral?, chip?)` | Free-text search across all indexed docs |
-| `hw_registers(peripheral, register?)` | Get register maps from SVD/docs |
-| `hw_context(peripheral)` | Get full pre-compiled peripheral context |
+| `hw_search(query, chip?, doc_type?, peripheral?, top_k?)` | Free-text semantic search across all indexed docs |
+| `hw_registers(peripheral, register?, chip?)` | Get register maps (SVD `content_type="register_description"`) |
+| `hw_context(peripheral, chip?)` | Get full pre-compiled peripheral context (file or store fallback) |
 
-Resources: `hw://peripherals`, `hw://documents`
+| Resource | Purpose |
+|----------|---------|
+| `hw://peripherals` | List all indexed peripherals with chip info |
+| `hw://documents` | List all indexed documents from manifest |
 
-→ Detailed design: `docs/plans/PLAN_MCP_SERVER.md` (to be created)
+Shared utility: `build_where()` in `hwcc.search` builds ChromaDB `$and` where clauses — used by both `SearchEngine` and MCP handlers.
+
+→ Detailed design: `docs/plans/PLAN_MCP_SERVER.md`
 
 ### 5.3 CLI Search [PLANNED — v0.2]
 
@@ -303,7 +310,7 @@ COMMANDS:
 | **SVD** | cmsis-svd (PyPI) | [DONE] |
 | **Templating** | Jinja2 | [DONE] |
 | **Config** | TOML (tomli/tomli-w) | [DONE] |
-| **MCP SDK** | mcp (PyPI) | [PLANNED] |
+| **MCP SDK** | mcp (PyPI) | Optional (`hwcc[mcp]`) |
 
 ### Core Dependencies
 

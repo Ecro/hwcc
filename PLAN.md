@@ -2,8 +2,8 @@
 
 > **Version**: 0.2.0
 > **Date**: 2026-03-02
-> **Status**: v0.2 complete — quality, search, catalog shipped
-> **Tests**: 1062 | **Source files**: 48 | **Parsers**: 5 (SVD, PDF, Markdown, Text, DTS)
+> **Status**: v0.3 in progress — MCP server core shipped
+> **Tests**: 1101 | **Source files**: 49 | **Parsers**: 5 (SVD, PDF, Markdown, Text, DTS)
 
 ---
 
@@ -81,10 +81,10 @@ All complete: file type detection, SVD parser (P0 — per-field reset values, ac
 
 | # | Task | Description |
 |---|------|-------------|
-| 3.1 | MCP server implementation | 3 tools: `hw_search`, `hw_registers`, `hw_context`. stdio transport. |
+| ~~3.1~~ | ~~MCP server implementation~~ | ~~3 tools: `hw_search`, `hw_registers`, `hw_context`. 2 resources. stdio transport.~~ ✅ |
 | 3.2 | `hwcc mcp` CLI command | Start server, generate `.claude/mcp.json` config snippet |
 
-→ Detailed plan: `docs/plans/PLAN_MCP_SERVER.md` (to be created)
+→ Detailed plan: `docs/plans/PLAN_MCP_SERVER.md`
 
 ---
 

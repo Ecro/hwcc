@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from hwcc.exceptions import EmbeddingError, StoreError
-from hwcc.search import SearchEngine
+from hwcc.search import SearchEngine, build_where
 from hwcc.types import Chunk, ChunkMetadata, SearchResult
 
 # ---------------------------------------------------------------------------
@@ -48,7 +48,7 @@ def _make_engine(
 
 
 # ---------------------------------------------------------------------------
-# Tests: _build_where
+# Tests: build_where
 # ---------------------------------------------------------------------------
 
 
@@ -56,23 +56,27 @@ class TestBuildWhere:
     """Tests for the ChromaDB where clause builder."""
 
     def test_no_filters_returns_none(self) -> None:
-        result = SearchEngine._build_where()
+        result = build_where()
         assert result is None
 
     def test_single_chip_filter(self) -> None:
-        result = SearchEngine._build_where(chip="STM32F407")
+        result = build_where(chip="STM32F407")
         assert result == {"chip": "STM32F407"}
 
     def test_single_doc_type_filter(self) -> None:
-        result = SearchEngine._build_where(doc_type="svd")
+        result = build_where(doc_type="svd")
         assert result == {"doc_type": "svd"}
 
     def test_single_peripheral_filter(self) -> None:
-        result = SearchEngine._build_where(peripheral="GPIOA")
+        result = build_where(peripheral="GPIOA")
         assert result == {"peripheral": "GPIOA"}
 
+    def test_single_content_type_filter(self) -> None:
+        result = build_where(content_type="register_description")
+        assert result == {"content_type": "register_description"}
+
     def test_two_filters_uses_and(self) -> None:
-        result = SearchEngine._build_where(chip="STM32F407", doc_type="svd")
+        result = build_where(chip="STM32F407", doc_type="svd")
         assert result is not None
         assert "$and" in result
         filters = result["$and"]
@@ -80,7 +84,7 @@ class TestBuildWhere:
         assert {"doc_type": "svd"} in filters
 
     def test_three_filters_uses_and(self) -> None:
-        result = SearchEngine._build_where(
+        result = build_where(
             chip="STM32F407",
             doc_type="svd",
             peripheral="GPIOA",
@@ -90,8 +94,20 @@ class TestBuildWhere:
         filters = result["$and"]
         assert len(filters) == 3
 
+    def test_four_filters_uses_and(self) -> None:
+        result = build_where(
+            chip="STM32F407",
+            doc_type="svd",
+            peripheral="GPIOA",
+            content_type="register_description",
+        )
+        assert result is not None
+        assert "$and" in result
+        filters = result["$and"]
+        assert len(filters) == 4
+
     def test_empty_strings_ignored(self) -> None:
-        result = SearchEngine._build_where(chip="", doc_type="svd", peripheral="")
+        result = build_where(chip="", doc_type="svd", peripheral="")
         assert result == {"doc_type": "svd"}
 
 

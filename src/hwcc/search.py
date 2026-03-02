@@ -15,9 +15,46 @@ if TYPE_CHECKING:
     from hwcc.store.base import BaseStore
     from hwcc.types import SearchResult
 
-__all__ = ["SearchEngine"]
+__all__ = ["SearchEngine", "build_where"]
 
 logger = logging.getLogger(__name__)
+
+
+def build_where(
+    chip: str = "",
+    doc_type: str = "",
+    peripheral: str = "",
+    content_type: str = "",
+) -> dict[str, Any] | None:
+    """Build a ChromaDB ``where`` clause from filter parameters.
+
+    Shared by :class:`SearchEngine` and the MCP server handlers so that
+    filter semantics stay identical everywhere.
+
+    Args:
+        chip: Filter by chip name.
+        doc_type: Filter by document type.
+        peripheral: Filter by peripheral name.
+        content_type: Filter by content type (e.g. ``"register_description"``).
+
+    Returns:
+        A ChromaDB where dict, or ``None`` if no filters specified.
+    """
+    filters: list[dict[str, str]] = []
+    if chip:
+        filters.append({"chip": chip})
+    if doc_type:
+        filters.append({"doc_type": doc_type})
+    if peripheral:
+        filters.append({"peripheral": peripheral})
+    if content_type:
+        filters.append({"content_type": content_type})
+
+    if not filters:
+        return None
+    if len(filters) == 1:
+        return filters[0]
+    return {"$and": filters}
 
 
 class SearchEngine:
@@ -64,7 +101,7 @@ class SearchEngine:
         start = time.monotonic()
 
         query_embedding = self._embedder.embed_query(query)
-        where = self._build_where(chip=chip, doc_type=doc_type, peripheral=peripheral)
+        where = build_where(chip=chip, doc_type=doc_type, peripheral=peripheral)
 
         results = self._store.search(query_embedding, k=k, where=where)
 
@@ -76,33 +113,3 @@ class SearchEngine:
             elapsed,
         )
         return results, elapsed
-
-    @staticmethod
-    def _build_where(
-        chip: str = "",
-        doc_type: str = "",
-        peripheral: str = "",
-    ) -> dict[str, Any] | None:
-        """Build a ChromaDB ``where`` clause from filter parameters.
-
-        Args:
-            chip: Filter by chip name.
-            doc_type: Filter by document type.
-            peripheral: Filter by peripheral name.
-
-        Returns:
-            A ChromaDB where dict, or None if no filters specified.
-        """
-        filters: list[dict[str, str]] = []
-        if chip:
-            filters.append({"chip": chip})
-        if doc_type:
-            filters.append({"doc_type": doc_type})
-        if peripheral:
-            filters.append({"peripheral": peripheral})
-
-        if not filters:
-            return None
-        if len(filters) == 1:
-            return filters[0]
-        return {"$and": filters}

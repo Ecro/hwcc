@@ -9,6 +9,7 @@ __all__ = [
     "EmbeddingError",
     "HwccError",
     "ManifestError",
+    "McpError",
     "ParseError",
     "PipelineError",
     "PluginError",
@@ -67,3 +68,7 @@ class BenchmarkError(HwccError):
 
 class CatalogError(HwccError):
     """Raised when SVD catalog operations fail."""
+
+
+class McpError(HwccError):
+    """Raised when MCP server operations fail."""

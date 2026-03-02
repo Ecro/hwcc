@@ -47,6 +47,9 @@ bench = [
     "anthropic>=0.40",
     "openai>=1.50",
 ]
+mcp = [
+    "mcp>=1.0",
+]
 
 [project.scripts]
 hwcc = "hwcc.cli:app"
@@ -91,7 +94,7 @@ module = "tests.*"
 disallow_untyped_defs = false
 
 [[tool.mypy.overrides]]
-module = ["pymupdf", "pymupdf.*", "pdfplumber", "pdfplumber.*", "fitz", "fitz.*", "tiktoken", "tiktoken.*", "chromadb", "chromadb.*", "anthropic", "anthropic.*", "openai", "openai.*", "httpx", "httpx.*"]
+module = ["pymupdf", "pymupdf.*", "pdfplumber", "pdfplumber.*", "fitz", "fitz.*", "tiktoken", "tiktoken.*", "chromadb", "chromadb.*", "anthropic", "anthropic.*", "openai", "openai.*", "httpx", "httpx.*", "mcp", "mcp.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
