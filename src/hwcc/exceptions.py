@@ -1,6 +1,8 @@
 """Custom exception hierarchy for hwcc."""
 
 __all__ = [
+    "BenchmarkError",
+    "CatalogError",
     "ChunkError",
     "CompileError",
     "ConfigError",
@@ -57,3 +59,11 @@ class PipelineError(HwccError):
 
 class PluginError(HwccError):
     """Raised when plugin loading or registration fails."""
+
+
+class BenchmarkError(HwccError):
+    """Raised when benchmark operations fail."""
+
+
+class CatalogError(HwccError):
+    """Raised when SVD catalog operations fail."""

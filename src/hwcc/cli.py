@@ -23,7 +23,7 @@ from hwcc.compile.output import OutputCompiler
 from hwcc.compile.peripheral import PeripheralContextCompiler
 from hwcc.compile.templates import TARGET_REGISTRY
 from hwcc.config import load_config
-from hwcc.exceptions import CompileError, HwccError, StoreError
+from hwcc.exceptions import BenchmarkError, CatalogError, CompileError, HwccError, StoreError
 from hwcc.ingest import detect_file_type, get_parser
 from hwcc.manifest import (
     DocumentEntry,
@@ -521,3 +521,399 @@ def config_cmd(
 ) -> None:
     """Get or set configuration values."""
     _not_implemented("config")
+
+
+# --- Catalog sub-app ---
+
+catalog_app = typer.Typer(
+    name="catalog",
+    help="Browse and add SVD files from the cmsis-svd catalog.",
+    no_args_is_help=True,
+)
+app.add_typer(catalog_app)
+
+
+@catalog_app.command(name="list")
+def catalog_list(
+    query: Annotated[
+        str | None,
+        typer.Argument(help="Search query (device name substring)"),
+    ] = None,
+    vendor: Annotated[
+        str,
+        typer.Option("--vendor", "-v", help="Filter by vendor name"),
+    ] = "",
+) -> None:
+    """List or search SVD devices in the catalog."""
+    from hwcc.catalog import CatalogIndex
+
+    try:
+        catalog = CatalogIndex.load()
+    except CatalogError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1) from e
+
+    if query:
+        # Search mode
+        results = catalog.search(query, vendor=vendor)
+        if not results:
+            console.print(f"[yellow]No devices matching[/yellow] '{query}'")
+            raise typer.Exit(code=0)
+
+        table = Table(title=f"Found {len(results)} device(s) matching '{query}'")
+        table.add_column("Device", style="bold")
+        table.add_column("Vendor", style="cyan")
+        for entry in results:
+            table.add_row(entry.name, entry.vendor)
+        console.print(table)
+        console.print(
+            "\n[dim]Use [bold]hwcc catalog add <device>[/bold]"
+            " to add to your project.[/dim]"
+        )
+
+    elif vendor:
+        # Vendor filter mode (no query)
+        results = catalog.search("", vendor=vendor)
+        if not results:
+            console.print(f"[yellow]No devices for vendor[/yellow] '{vendor}'")
+            raise typer.Exit(code=0)
+
+        table = Table(title=f"{vendor} — {len(results)} device(s)")
+        table.add_column("Device", style="bold")
+        for entry in results:
+            table.add_row(entry.name)
+        console.print(table)
+
+    else:
+        # Summary mode — list vendors with counts
+        vendors = catalog.vendors()
+        title = f"SVD Catalog \u2014 {catalog.device_count} devices from {len(vendors)} vendors"
+        table = Table(title=title)
+        table.add_column("Vendor", style="bold")
+        table.add_column("Devices", justify="right", style="cyan")
+        for name, count in vendors:
+            table.add_row(name, str(count))
+        console.print(table)
+        console.print(
+            "\n[dim]Use [bold]hwcc catalog list <query>[/bold] to search devices.[/dim]"
+        )
+
+
+@catalog_app.command(name="add")
+def catalog_add(
+    device: Annotated[
+        str,
+        typer.Argument(help="Device name to add (e.g. STM32F407)"),
+    ],
+    chip: Annotated[
+        str,
+        typer.Option("--chip", "-c", help="Chip tag override"),
+    ] = "",
+    no_compile: Annotated[
+        bool,
+        typer.Option("--no-compile", help="Skip auto-compile after adding"),
+    ] = False,
+) -> None:
+    """Download an SVD file from the catalog and add it to the project."""
+    import tempfile
+
+    from hwcc.catalog import CatalogIndex, download_svd
+
+    pm = ProjectManager()
+    if not pm.is_initialized:
+        console.print("[yellow]No hwcc project found.[/yellow] Run [bold]hwcc init[/bold] first.")
+        raise typer.Exit(code=1)
+
+    # Load catalog and find device
+    try:
+        catalog = CatalogIndex.load()
+    except CatalogError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1) from e
+
+    entry = catalog.find_exact(device)
+    if entry is None:
+        # Try substring search for suggestions
+        results = catalog.search(device)
+        if results:
+            console.print(f"[yellow]No exact match for[/yellow] '{device}'")
+            console.print("\n[dim]Did you mean one of these?[/dim]")
+            for r in results[:10]:
+                console.print(f"  {r.name} ({r.vendor})")
+        else:
+            console.print(f"[red]No device found matching[/red] '{device}'")
+        raise typer.Exit(code=1)
+
+    # Download SVD to temp directory
+    with tempfile.TemporaryDirectory() as tmpdir:
+        try:
+            msg = f"Downloading [bold]{entry.name}[/bold] from cmsis-svd..."
+            with console.status(msg, spinner="dots"):
+                svd_path = download_svd(entry, Path(tmpdir))
+        except CatalogError as e:
+            console.print(f"[red]Download failed:[/red] {e}")
+            raise typer.Exit(code=1) from e
+
+        # Process through the standard add pipeline
+        config = load_config(pm.config_path)
+        manifest = load_manifest(pm.manifest_path)
+
+        effective_chip = chip or entry.name
+        doc_id = make_doc_id(svd_path)
+        file_hash = compute_hash(svd_path)
+
+        # Remove old chunks if re-indexing
+        if manifest.get_document(doc_id) is not None:
+            try:
+                store = ChromaStore(
+                    persist_path=pm.rag_dir / "index",
+                    collection_name=config.store.collection_name,
+                )
+                store.delete(doc_id)
+            except HwccError as e:
+                logging.getLogger(__name__).warning(
+                    "Failed to remove old chunks for %s: %s", doc_id, e,
+                )
+
+        try:
+            chunker = MarkdownChunker()
+            embedder = default_registry.create("embedding", config.embedding.provider, config)
+            store = ChromaStore(
+                persist_path=pm.rag_dir / "index",
+                collection_name=config.store.collection_name,
+            )
+            parser = get_parser("svd")
+            pipeline = Pipeline(
+                parser=parser,
+                chunker=chunker,
+                embedder=embedder,
+                store=store,
+                config=config,
+            )
+            with console.status(f"Indexing [bold]{entry.name}[/bold]...", spinner="dots"):
+                chunk_count = pipeline.process(
+                    path=svd_path,
+                    doc_id=doc_id,
+                    doc_type="svd",
+                    chip=effective_chip,
+                )
+        except HwccError as e:
+            console.print(f"[red]Failed to process {entry.name}:[/red] {e}")
+            raise typer.Exit(code=1) from e
+
+        # Update manifest
+        manifest_entry = DocumentEntry(
+            id=doc_id,
+            path=f"catalog:{entry.vendor}/{entry.name}",
+            doc_type="svd",
+            hash=file_hash,
+            added=datetime.now(UTC).isoformat(),
+            chunks=chunk_count,
+            chip=effective_chip,
+        )
+        manifest.add_document(manifest_entry)
+        save_manifest(manifest, pm.manifest_path)
+
+    console.print(f"[green]Added {entry.name}[/green] ({entry.vendor}, {chunk_count} chunks)")
+
+    # Auto-compile
+    if not no_compile:
+        with console.status("Compiling context...", spinner="dots"):
+            generated = _compile_project(pm)
+        if generated:
+            console.print(f"[green]Compiled {len(generated)} file(s)[/green]")
+
+
+# --- Benchmark sub-app ---
+
+bench_app = typer.Typer(
+    name="bench",
+    help="HwBench — hardware context benchmark suite.",
+    no_args_is_help=True,
+)
+app.add_typer(bench_app)
+
+
+@bench_app.command(name="generate")
+def bench_generate(
+    svd_file: Annotated[
+        str,
+        typer.Argument(help="Path to SVD file"),
+    ],
+    output: Annotated[
+        str,
+        typer.Option("--output", "-o", help="Output dataset JSON path"),
+    ] = "",
+    peripherals: Annotated[
+        int,
+        typer.Option("--peripherals", "-p", help="Max peripherals to include"),
+    ] = 10,
+    chip: Annotated[
+        str,
+        typer.Option("--chip", "-c", help="Chip name override"),
+    ] = "",
+) -> None:
+    """Generate benchmark dataset from an SVD file."""
+    from hwcc.bench.dataset import generate_dataset, save_dataset
+
+    svd_path = Path(svd_file).resolve()
+    if not svd_path.exists():
+        console.print(f"[red]SVD file not found:[/red] {svd_file}")
+        raise typer.Exit(code=1)
+
+    try:
+        with console.status("Generating dataset...", spinner="dots"):
+            dataset = generate_dataset(svd_path, num_peripherals=peripherals, chip=chip)
+    except BenchmarkError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1) from e
+
+    # Default output path
+    out_path = Path(output) if output else Path(f"{dataset.name.lower()}_dataset.json")
+
+    try:
+        save_dataset(dataset, out_path)
+    except BenchmarkError as e:
+        console.print(f"[red]Failed to save:[/red] {e}")
+        raise typer.Exit(code=1) from e
+
+    console.print(f"[green]Generated {dataset.question_count} questions[/green]")
+    console.print(f"  Chip: {dataset.chip}")
+    console.print(f"  Categories: {', '.join(dataset.categories)}")
+    console.print(f"  Saved to: {out_path}")
+
+
+@bench_app.command(name="run")
+def bench_run(
+    dataset_file: Annotated[
+        str,
+        typer.Argument(help="Path to dataset JSON file"),
+    ],
+    provider: Annotated[
+        str,
+        typer.Option("--provider", help="LLM provider (anthropic, openai, ollama)"),
+    ] = "anthropic",
+    model: Annotated[
+        str,
+        typer.Option("--model", "-m", help="Model name"),
+    ] = "",
+    conditions: Annotated[
+        str,
+        typer.Option("--conditions", help="Comma-separated condition names"),
+    ] = "no_context,hwcc_full",
+    context_dir: Annotated[
+        str,
+        typer.Option("--context-dir", help="Path to .rag/context/ directory"),
+    ] = "",
+    output: Annotated[
+        str,
+        typer.Option("--output", "-o", help="Output report JSON path"),
+    ] = "",
+    delay: Annotated[
+        float,
+        typer.Option("--delay", help="Delay between API calls (seconds)"),
+    ] = 0.5,
+) -> None:
+    """Run benchmark against an LLM provider."""
+    from rich.progress import Progress
+
+    from hwcc.bench.dataset import load_dataset
+    from hwcc.bench.providers import create_provider
+    from hwcc.bench.report import generate_report, print_report, save_report
+    from hwcc.bench.runner import prepare_conditions, run_benchmark
+
+    # Load dataset
+    dataset_path = Path(dataset_file)
+    try:
+        dataset = load_dataset(dataset_path)
+    except BenchmarkError as e:
+        console.print(f"[red]Error loading dataset:[/red] {e}")
+        raise typer.Exit(code=1) from e
+
+    # Create provider
+    try:
+        llm = create_provider(provider, model=model)
+    except BenchmarkError as e:
+        console.print(f"[red]Provider error:[/red] {e}")
+        raise typer.Exit(code=1) from e
+
+    # Prepare conditions
+    ctx_path = Path(context_dir) if context_dir else None
+    if not ctx_path:
+        # Try to find .rag/context/ in current directory
+        pm = ProjectManager()
+        if pm.is_initialized:
+            ctx_path = pm.rag_dir / "context"
+
+    requested_conditions = [c.strip() for c in conditions.split(",")]
+    peripheral_names = list({q.peripheral for q in dataset.questions})
+    all_conditions = prepare_conditions(ctx_path, dataset.chip, peripheral_names)
+    filtered = [c for c in all_conditions if c.name in requested_conditions]
+
+    if not filtered:
+        console.print(
+            f"[red]No valid conditions found.[/red] "
+            f"Available: {', '.join(c.name for c in all_conditions)}"
+        )
+        raise typer.Exit(code=1)
+
+    console.print(f"[bold]HwBench[/bold] — {dataset.chip}")
+    console.print(f"  Dataset: {dataset.question_count} questions")
+    console.print(f"  Model: {llm.model_name} ({llm.name})")
+    console.print(f"  Conditions: {', '.join(c.name for c in filtered)}")
+    console.print()
+
+    # Run with progress bar
+    with Progress(console=console) as progress:
+        task_ids: dict[str, object] = {}
+
+        def on_progress(condition_name: str, idx: int, total: int) -> None:
+            if condition_name not in task_ids:
+                task_ids[condition_name] = progress.add_task(
+                    f"[cyan]{condition_name}[/cyan]", total=total
+                )
+            progress.update(task_ids[condition_name], completed=idx + 1)  # type: ignore[arg-type]
+
+        try:
+            runs = run_benchmark(
+                dataset=dataset,
+                provider=llm,
+                conditions=filtered,
+                delay_seconds=delay,
+                progress_callback=on_progress,
+            )
+        except BenchmarkError as e:
+            console.print(f"\n[red]Benchmark error:[/red] {e}")
+            raise typer.Exit(code=1) from e
+
+    # Generate and display report
+    report = generate_report(runs, chip=dataset.chip)
+    print_report(report, console=console)
+
+    # Save report
+    out_path = Path(output) if output else Path(f"{dataset.name.lower()}_report.json")
+    try:
+        save_report(report, out_path)
+        console.print(f"[green]Report saved to:[/green] {out_path}")
+    except BenchmarkError as e:
+        console.print(f"[yellow]Warning: failed to save report:[/yellow] {e}")
+
+
+@bench_app.command(name="report")
+def bench_report_cmd(
+    report_file: Annotated[
+        str,
+        typer.Argument(help="Path to report JSON file"),
+    ],
+) -> None:
+    """Display a previously saved benchmark report."""
+    from hwcc.bench.report import load_report, print_report
+
+    report_path = Path(report_file)
+    try:
+        report = load_report(report_path)
+    except BenchmarkError as e:
+        console.print(f"[red]Error loading report:[/red] {e}")
+        raise typer.Exit(code=1) from e
+
+    print_report(report, console=console)
