@@ -119,6 +119,7 @@ class CompileContext:
     peripheral_name: str = ""
     peripheral_description: str = ""
     register_map: str = ""
+    usage_patterns: str = ""
     peripheral_details: str = ""
 
     # Metadata

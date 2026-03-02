@@ -34,6 +34,20 @@ _TEMPLATE_NAME = "peripheral.md.j2"
 # Maximum number of non-SVD chunks to include as peripheral details.
 _MAX_DETAIL_CHUNKS = 5
 
+# Maximum number of usage pattern chunks per peripheral.
+_MAX_USAGE_PATTERNS = 5
+
+# Keywords in section_path that indicate a usage/configuration procedure.
+_USAGE_KEYWORDS: frozenset[str] = frozenset({
+    "initialization",
+    "configuration",
+    "procedure",
+    "setup",
+    "programming",
+    "enable",
+    "how to",
+})
+
 
 class PeripheralContextCompiler(BaseCompiler):
     """Compiles .rag/context/peripherals/<name>.md per peripheral.
@@ -111,11 +125,17 @@ class PeripheralContextCompiler(BaseCompiler):
             for name, chip in peripherals:
                 register_map = self._extract_register_map(name, svd_chunks, chip)
                 description = self._extract_description(register_map)
+
+                # Extract usage patterns first, then exclude from details
+                usage_patterns, usage_ids = self._extract_usage_patterns(
+                    name, non_svd_chunks, chip, title_map=title_map,
+                )
                 details = self._gather_peripheral_details(
                     name, non_svd_chunks, chip,
                     title_map=title_map,
                     register_map=register_map,
                     description=description,
+                    exclude_ids=usage_ids,
                 )
 
                 # Add SVD source citation to register map (one per unique doc_id)
@@ -141,6 +161,7 @@ class PeripheralContextCompiler(BaseCompiler):
                     peripheral_name=name,
                     peripheral_description=description,
                     register_map=register_map,
+                    usage_patterns=usage_patterns,
                     peripheral_details=details,
                     peripheral_pins=tuple(filtered_pins),
                 )
@@ -277,6 +298,7 @@ class PeripheralContextCompiler(BaseCompiler):
         title_map: dict[str, str] | None = None,
         register_map: str = "",
         description: str = "",
+        exclude_ids: set[str] | None = None,
     ) -> str:
         """Gather additional details about a peripheral from non-SVD documents.
 
@@ -290,6 +312,8 @@ class PeripheralContextCompiler(BaseCompiler):
 
         When ``chip`` is provided, only chunks for that chip are included.
         When ``title_map`` is provided, inline citations are appended.
+        When ``exclude_ids`` is provided, those chunk IDs are skipped
+        (used to avoid duplicating chunks already in Usage Patterns).
 
         Limits to ``_MAX_DETAIL_CHUNKS`` to avoid bloat.
 
@@ -300,15 +324,18 @@ class PeripheralContextCompiler(BaseCompiler):
             title_map: Optional doc_id to title mapping for citations.
             register_map: SVD register map content for keyword extraction.
             description: Peripheral description for keyword extraction.
+            exclude_ids: Chunk IDs to exclude (already used elsewhere).
 
         Returns:
             Concatenated detail content with optional citations, or empty string.
         """
+        excluded = exclude_ids or set()
         relevant = [
             c
             for c in non_svd_chunks
             if self._section_path_mentions_peripheral(c.metadata.section_path, peripheral_name)
             and (not chip or c.metadata.chip == chip)
+            and c.chunk_id not in excluded
         ]
         keywords = build_peripheral_keywords(peripheral_name, register_map, description)
         relevant = rank_chunks(relevant, keywords, max_chunks=_MAX_DETAIL_CHUNKS)
@@ -324,6 +351,103 @@ class PeripheralContextCompiler(BaseCompiler):
             return "\n\n---\n\n".join(parts).strip()
 
         return "\n\n---\n\n".join(c.content for c in relevant).strip()
+
+    def _extract_usage_patterns(
+        self,
+        peripheral_name: str,
+        non_svd_chunks: list[Chunk],
+        chip: str = "",
+        title_map: dict[str, str] | None = None,
+    ) -> tuple[str, set[str]]:
+        """Extract usage pattern chunks for a peripheral.
+
+        Selects chunks that describe configuration/initialization procedures:
+        1. ``content_type == "config_procedure"`` (primary, from chunker)
+        2. Section path contains usage keywords (fallback)
+
+        Groups by inferred task name to avoid duplicates. Appends citations
+        when ``title_map`` is provided.
+
+        Args:
+            peripheral_name: Name of the peripheral (e.g. ``"SPI1"``).
+            non_svd_chunks: All non-SVD chunks from the store.
+            chip: Optional chip filter for multi-chip disambiguation.
+            title_map: Optional doc_id to title mapping for citations.
+
+        Returns:
+            Tuple of (rendered usage patterns content, set of used chunk IDs).
+        """
+        candidates = [
+            c
+            for c in non_svd_chunks
+            if self._section_path_mentions_peripheral(c.metadata.section_path, peripheral_name)
+            and (not chip or c.metadata.chip == chip)
+            and (
+                c.metadata.content_type == "config_procedure"
+                or self._section_path_has_usage_keyword(c.metadata.section_path)
+            )
+        ]
+
+        if not candidates:
+            return "", set()
+
+        # Rank by relevance, limit count.
+        # min_score=0.0: candidates are pre-filtered by content_type or
+        # section_path keywords, so any surviving candidate is relevant.
+        keywords = build_peripheral_keywords(peripheral_name)
+        candidates = rank_chunks(
+            candidates, keywords, max_chunks=_MAX_USAGE_PATTERNS, min_score=0.0,
+        )
+
+        # Deduplicate by task name (keep first/highest-ranked occurrence)
+        seen_tasks: set[str] = set()
+        selected: list[tuple[str, Chunk]] = []
+        for c in candidates:
+            task = self._infer_task_name(c.metadata.section_path)
+            if task not in seen_tasks:
+                seen_tasks.add(task)
+                selected.append((task, c))
+            else:
+                logger.debug(
+                    "Usage pattern dedup: skipped chunk %s (task %r already seen)",
+                    c.chunk_id, task,
+                )
+
+        if not selected:
+            return "", set()
+
+        # Exclude all candidate IDs (including deduped) from details
+        used_ids = {c.chunk_id for c in candidates}
+
+        # Render with task name subheadings
+        parts: list[str] = []
+        for task, c in selected:
+            section = f"### {task}\n\n{c.content}"
+            if title_map:
+                section += f"\n\n{format_citation(c.metadata, title_map)}"
+            parts.append(section)
+
+        return "\n\n".join(parts).strip(), used_ids
+
+    @staticmethod
+    def _infer_task_name(section_path: str) -> str:
+        """Derive a human-readable task name from the last section_path element.
+
+        Example: ``"STM32F407 > SPI1 > Initialization"`` -> ``"Initialization"``
+
+        Falls back to ``"General"`` if the path has fewer than 3 elements
+        (i.e. no subsection beyond the peripheral name).
+        """
+        parts = section_path.split(" > ")
+        if len(parts) >= 3:
+            return parts[-1].strip()
+        return "General"
+
+    @staticmethod
+    def _section_path_has_usage_keyword(section_path: str) -> bool:
+        """Check if any section_path element contains a usage keyword."""
+        path_lower = section_path.lower()
+        return any(kw in path_lower for kw in _USAGE_KEYWORDS)
 
     @staticmethod
     def _chunk_belongs_to_peripheral(chunk: Chunk, peripheral_name: str) -> bool:

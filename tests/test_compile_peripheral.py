@@ -87,6 +87,7 @@ def _make_chunk(
     chip: str = "STM32F407",
     section_path: str = "",
     peripheral: str = "",
+    content_type: str = "",
 ) -> Chunk:
     """Create a Chunk with the given metadata for testing."""
     return Chunk(
@@ -99,6 +100,7 @@ def _make_chunk(
             chip=chip,
             section_path=section_path,
             peripheral=peripheral,
+            content_type=content_type,
         ),
     )
 
@@ -953,9 +955,9 @@ class TestRelevanceScoredSelection:
         # High-relevance: mentions SPI, CR1, serial in content
         high = _make_chunk(
             "ds_0002",
-            "SPI1 serial communication using CR1 control configuration",
+            "SPI1 serial communication using CR1 control features",
             doc_type="datasheet",
-            section_path="STM32F407 > SPI1 > Configuration",
+            section_path="STM32F407 > SPI1 > Electrical",
         )
 
         store = FakeStore([svd, low, high])
@@ -963,10 +965,11 @@ class TestRelevanceScoredSelection:
         paths = compiler.compile(store, config)
 
         content = paths[0].read_text(encoding="utf-8")
-        # High-relevance chunk content should appear before low-relevance
+        # High-relevance chunk content should appear in output
         high_pos = content.find("serial communication")
         low_pos = content.find("pin multiplexing")
         assert high_pos != -1, "High-relevance content should be present"
+        # High-relevance before low-relevance, or low filtered out
         assert high_pos < low_pos or low_pos == -1
 
     def test_irrelevant_chunk_excluded(
@@ -1025,6 +1028,229 @@ class TestRelevanceScoredSelection:
         content = paths[0].read_text(encoding="utf-8")
         # "tim2" keyword from name alone should match
         assert "timer counter" in content
+
+
+# ---------------------------------------------------------------------------
+# Tests: Usage pattern extraction
+# ---------------------------------------------------------------------------
+
+
+class TestUsagePatterns:
+    """Tests for usage pattern extraction and rendering."""
+
+    def test_config_procedure_chunks_in_usage_patterns(
+        self,
+        project_dir: Path,
+        config: HwccConfig,
+    ) -> None:
+        """Chunks with content_type='config_procedure' appear in Usage Patterns."""
+        svd = _make_chunk(
+            "svd_0000",
+            "## SPI1\n\n**Base Address:** `0x40013000`\n"
+            "**Description:** Serial peripheral interface",
+            section_path="STM32F407 Register Map > SPI1",
+        )
+        proc = _make_chunk(
+            "rm_0001",
+            "Step 1: Set BR bits in CR1\nStep 2: Enable SPE bit",
+            doc_type="reference_manual",
+            section_path="STM32F407 > SPI1 > Initialization",
+            content_type="config_procedure",
+        )
+
+        store = FakeStore([svd, proc])
+        compiler = PeripheralContextCompiler(project_dir)
+        paths = compiler.compile(store, config)
+
+        content = paths[0].read_text(encoding="utf-8")
+        assert "## Usage Patterns" in content
+        assert "Set BR bits" in content
+
+    def test_section_path_keyword_fallback(
+        self,
+        project_dir: Path,
+        config: HwccConfig,
+    ) -> None:
+        """Chunks with usage keywords in section_path included even without config_procedure."""
+        svd = _make_chunk(
+            "svd_0000",
+            "## SPI1\n\n**Base Address:** `0x40013000`\n"
+            "**Description:** Serial peripheral interface",
+            section_path="STM32F407 Register Map > SPI1",
+        )
+        # No content_type, but section_path has "Configuration"
+        fallback = _make_chunk(
+            "rm_0001",
+            "Configure the SPI baud rate by writing to CR1",
+            doc_type="reference_manual",
+            section_path="STM32F407 > SPI1 > Configuration",
+        )
+
+        store = FakeStore([svd, fallback])
+        compiler = PeripheralContextCompiler(project_dir)
+        paths = compiler.compile(store, config)
+
+        content = paths[0].read_text(encoding="utf-8")
+        assert "## Usage Patterns" in content
+        assert "baud rate" in content
+
+    def test_task_name_from_section_path(
+        self,
+        project_dir: Path,
+    ) -> None:
+        """Task name is inferred from last section_path element."""
+        compiler = PeripheralContextCompiler(project_dir)
+
+        assert compiler._infer_task_name("STM32F407 > SPI1 > Initialization") == "Initialization"
+        assert compiler._infer_task_name("STM32F407 > SPI1 > Clock Setup") == "Clock Setup"
+        assert compiler._infer_task_name("STM32F407 > SPI1") == "General"
+
+    def test_usage_patterns_excluded_from_details(
+        self,
+        project_dir: Path,
+        config: HwccConfig,
+    ) -> None:
+        """Chunks selected as usage patterns must not also appear in Additional Documentation."""
+        svd = _make_chunk(
+            "svd_0000",
+            "## SPI1\n\n**Base Address:** `0x40013000`\n"
+            "**Description:** Serial peripheral interface",
+            section_path="STM32F407 Register Map > SPI1",
+        )
+        proc = _make_chunk(
+            "rm_0001",
+            "SPI initialization procedure for serial communication setup",
+            doc_type="reference_manual",
+            section_path="STM32F407 > SPI1 > Initialization",
+            content_type="config_procedure",
+        )
+        detail = _make_chunk(
+            "ds_0002",
+            "SPI1 supports serial full-duplex transfers at up to 42 MHz",
+            doc_type="datasheet",
+            section_path="STM32F407 > SPI1 > Features",
+        )
+
+        store = FakeStore([svd, proc, detail])
+        compiler = PeripheralContextCompiler(project_dir)
+        paths = compiler.compile(store, config)
+
+        content = paths[0].read_text(encoding="utf-8")
+        # Procedure should be in Usage Patterns
+        assert "## Usage Patterns" in content
+        usage_pos = content.find("## Usage Patterns")
+        details_pos = content.find("## Additional Documentation")
+
+        # Procedure content in Usage Patterns only
+        proc_pos = content.find("initialization procedure")
+        assert proc_pos != -1
+        assert proc_pos > usage_pos
+        if details_pos != -1:
+            assert proc_pos < details_pos
+
+        # Detail content in Additional Documentation
+        detail_pos = content.find("full-duplex transfers")
+        assert detail_pos != -1
+        if details_pos != -1:
+            assert detail_pos > details_pos
+
+    def test_empty_usage_patterns_no_section(
+        self,
+        project_dir: Path,
+        config: HwccConfig,
+        spi_chunks: list[Chunk],
+    ) -> None:
+        """When no usage patterns exist, the section should not appear."""
+        store = FakeStore(spi_chunks)
+        compiler = PeripheralContextCompiler(project_dir)
+        paths = compiler.compile(store, config)
+
+        content = paths[0].read_text(encoding="utf-8")
+        assert "## Usage Patterns" not in content
+
+    def test_max_usage_patterns_limit(
+        self,
+        project_dir: Path,
+    ) -> None:
+        """At most _MAX_USAGE_PATTERNS chunks are included."""
+        from hwcc.compile.peripheral import _MAX_USAGE_PATTERNS
+
+        non_svd = [
+            _make_chunk(
+                f"rm_{i:04d}",
+                f"SPI procedure step {i} for serial communication",
+                doc_type="reference_manual",
+                section_path=f"STM32F407 > SPI1 > Procedure {i}",
+                content_type="config_procedure",
+            )
+            for i in range(10)
+        ]
+
+        compiler = PeripheralContextCompiler(project_dir)
+        content, used_ids = compiler._extract_usage_patterns("SPI1", non_svd)
+
+        # used_ids includes all candidates (for dedup exclusion from details),
+        # but only _MAX_USAGE_PATTERNS are actually rendered
+        subheading_count = content.count("### Procedure")
+        assert subheading_count == _MAX_USAGE_PATTERNS
+
+    def test_usage_patterns_dedup_by_task_name(
+        self,
+        project_dir: Path,
+    ) -> None:
+        """Two chunks with same task name: only the first survives."""
+        non_svd = [
+            _make_chunk(
+                "rm_0001",
+                "SPI initialization from reference manual for serial setup",
+                doc_type="reference_manual",
+                section_path="STM32F407 > SPI1 > Initialization",
+                content_type="config_procedure",
+            ),
+            _make_chunk(
+                "ds_0002",
+                "SPI initialization from datasheet for serial configuration",
+                doc_type="datasheet",
+                section_path="STM32F407 > SPI1 > Initialization",
+                content_type="config_procedure",
+            ),
+        ]
+
+        compiler = PeripheralContextCompiler(project_dir)
+        content, used_ids = compiler._extract_usage_patterns("SPI1", non_svd)
+
+        assert content.count("### Initialization") == 1
+        # Both candidate IDs excluded from details (even the deduped one)
+        assert len(used_ids) == 2
+
+    def test_usage_patterns_have_task_subheadings(
+        self,
+        project_dir: Path,
+    ) -> None:
+        """Each usage pattern gets a ### subheading from task name."""
+        non_svd = [
+            _make_chunk(
+                "rm_0001",
+                "Step 1: Enable SPI clock",
+                doc_type="reference_manual",
+                section_path="STM32F407 > SPI1 > Initialization",
+                content_type="config_procedure",
+            ),
+            _make_chunk(
+                "rm_0002",
+                "Step 1: Set DMA enable SPI bit",
+                doc_type="reference_manual",
+                section_path="STM32F407 > SPI1 > DMA Setup",
+                content_type="config_procedure",
+            ),
+        ]
+
+        compiler = PeripheralContextCompiler(project_dir)
+        content, used_ids = compiler._extract_usage_patterns("SPI1", non_svd)
+
+        assert "### Initialization" in content
+        assert "### DMA Setup" in content
+        assert len(used_ids) == 2
 
 
 # ---------------------------------------------------------------------------
