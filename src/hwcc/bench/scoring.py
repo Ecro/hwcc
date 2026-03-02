@@ -2,19 +2,23 @@
 
 from __future__ import annotations
 
+import math
 import re
 
 from hwcc.bench.types import BenchMetrics, BenchResponse
 
 __all__ = [
     "compute_metrics",
+    "compute_metrics_with_difficulty",
     "extract_answer",
     "extract_confidence",
+    "mcnemar_test",
     "normalize_access",
     "normalize_bit_range",
     "normalize_hex",
     "score_answer",
     "score_answer_partial",
+    "wilson_ci",
 ]
 
 # Regex patterns for answer extraction
@@ -490,3 +494,152 @@ def _compute_ece(
         ece += abs(bin_acc - bin_conf) * len(in_bin) / total
 
     return ece
+
+
+def wilson_ci(
+    successes: int,
+    trials: int,
+    z: float = 1.96,
+) -> tuple[float, float]:
+    """Compute Wilson score confidence interval for a proportion.
+
+    The Wilson score interval provides better coverage than the normal
+    approximation, especially for small samples and extreme proportions.
+
+    Args:
+        successes: Number of successes (correct answers).
+        trials: Total number of trials (questions).
+        z: Z-score for confidence level (1.96 for 95%, 1.645 for 90%).
+
+    Returns:
+        Tuple of (lower_bound, upper_bound) as proportions [0.0, 1.0].
+    """
+    if trials == 0:
+        return 0.0, 0.0
+
+    n = trials
+    p = successes / n
+    z2 = z * z
+
+    denominator = 1 + z2 / n
+    center = p + z2 / (2 * n)
+    margin = z * math.sqrt(p * (1 - p) / n + z2 / (4 * n * n))
+
+    lower = max(0.0, (center - margin) / denominator)
+    upper = min(1.0, (center + margin) / denominator)
+
+    return lower, upper
+
+
+def mcnemar_test(
+    a_results: list[bool],
+    b_results: list[bool],
+) -> tuple[float, float]:
+    """Compute McNemar's test for paired binary outcomes.
+
+    Uses Edwards' continuity correction (|b-c| - 1)^2 / (b+c), which is
+    the standard form recommended for small sample sizes (< 25 discordant
+    pairs). Tests whether the accuracy difference between two conditions
+    (e.g., no_context vs hwcc_full) is statistically significant.
+
+    Args:
+        a_results: Per-question correctness for condition A.
+        b_results: Per-question correctness for condition B (same questions).
+
+    Returns:
+        Tuple of (test_statistic, p_value). p_value < 0.05 means significant.
+    """
+    if not a_results or not b_results:
+        return 0.0, 1.0
+
+    # Count discordant pairs
+    b_count = 0  # A wrong, B correct
+    c_count = 0  # A correct, B wrong
+
+    for a, b in zip(a_results, b_results, strict=True):
+        if not a and b:
+            b_count += 1
+        elif a and not b:
+            c_count += 1
+
+    total_discordant = b_count + c_count
+    if total_discordant == 0:
+        return 0.0, 1.0
+
+    # McNemar's chi-squared statistic with Edwards' continuity correction
+    chi2 = max(0, abs(b_count - c_count) - 1) ** 2 / total_discordant
+
+    # p-value from chi-squared distribution with df=1
+    p_value = _chi2_sf(chi2, df=1)
+
+    return chi2, p_value
+
+
+def _chi2_sf(x: float, df: int = 1) -> float:
+    """Survival function (1-CDF) for chi-squared distribution with df=1.
+
+    Only supports df=1 (used by McNemar's test).
+    For df=1: P(X > x) = erfc(sqrt(x/2))
+    """
+    if df != 1:
+        msg = f"_chi2_sf only supports df=1, got df={df}"
+        raise ValueError(msg)
+    if x <= 0:
+        return 1.0
+    return math.erfc(math.sqrt(x / 2))
+
+
+def compute_metrics_with_difficulty(
+    responses: tuple[BenchResponse, ...] | list[BenchResponse],
+    difficulty_map: dict[str, str] | None = None,
+) -> BenchMetrics:
+    """Compute metrics including per-difficulty and CI breakdown.
+
+    Like compute_metrics but also computes:
+    - Wilson CI for overall accuracy
+    - Per-difficulty accuracy breakdown
+
+    Args:
+        responses: Collection of benchmark responses.
+        difficulty_map: Maps question_id → difficulty level (easy/medium/hard).
+
+    Returns:
+        BenchMetrics with CI and difficulty fields populated.
+    """
+    base = compute_metrics(responses)
+
+    if not responses:
+        return base
+
+    # Wilson CI
+    ci_lower, ci_upper = wilson_ci(base.correct, base.total)
+
+    # Per-difficulty accuracy
+    by_difficulty: dict[str, list[bool]] = {}
+    if difficulty_map:
+        for r in responses:
+            diff = difficulty_map.get(r.question_id, "medium")
+            if diff not in by_difficulty:
+                by_difficulty[diff] = []
+            by_difficulty[diff].append(r.correct)
+
+    diff_accuracy = {
+        diff: sum(results) / len(results)
+        for diff, results in by_difficulty.items()
+        if results
+    }
+
+    return BenchMetrics(
+        total=base.total,
+        correct=base.correct,
+        accuracy=base.accuracy,
+        hallucination_rate=base.hallucination_rate,
+        by_category=base.by_category,
+        avg_latency_ms=base.avg_latency_ms,
+        total_tokens=base.total_tokens,
+        avg_partial_score=base.avg_partial_score,
+        expected_calibration_error=base.expected_calibration_error,
+        ci_lower=ci_lower,
+        ci_upper=ci_upper,
+        by_difficulty=diff_accuracy,
+    )

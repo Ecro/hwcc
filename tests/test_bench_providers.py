@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import subprocess
-from unittest.mock import patch
+import sys
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -148,3 +149,214 @@ class TestCreateProviderClaudeCode:
     def test_unknown_provider_raises(self):
         with pytest.raises(BenchmarkError, match="Unknown provider"):
             create_provider("nonexistent")
+
+
+class TestAnthropicProvider:
+    """Tests for AnthropicProvider with mocked anthropic SDK."""
+
+    def _make_mock_anthropic(self) -> MagicMock:
+        """Create a mock anthropic module with realistic response structure."""
+        mock_mod = MagicMock()
+        mock_client = MagicMock()
+        mock_mod.Anthropic.return_value = mock_client
+
+        # Build response object
+        mock_content = MagicMock()
+        mock_content.text = "0x40013000"
+        mock_usage = MagicMock()
+        mock_usage.input_tokens = 50
+        mock_usage.output_tokens = 10
+        mock_response = MagicMock()
+        mock_response.content = [mock_content]
+        mock_response.usage = mock_usage
+        mock_client.messages.create.return_value = mock_response
+
+        return mock_mod
+
+    def test_query_success(self):
+        mock_anthropic = self._make_mock_anthropic()
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            from hwcc.bench.providers import AnthropicProvider
+
+            provider = AnthropicProvider(model="claude-sonnet-4-6")
+            response = provider.query("system prompt", "What is the base address?")
+
+        assert isinstance(response, ProviderResponse)
+        assert response.text == "0x40013000"
+        assert response.tokens_used == 60
+        assert response.latency_ms > 0
+
+    def test_query_api_error(self):
+        mock_anthropic = self._make_mock_anthropic()
+        mock_anthropic.Anthropic().messages.create.side_effect = RuntimeError("API rate limit")
+
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            from hwcc.bench.providers import AnthropicProvider
+
+            provider = AnthropicProvider(model="claude-sonnet-4-6")
+            with pytest.raises(BenchmarkError, match="Anthropic API error"):
+                provider.query("system", "question")
+
+    def test_import_error(self):
+        """If anthropic package is missing, raise BenchmarkError."""
+        with patch.dict(sys.modules, {"anthropic": None}):
+            from hwcc.bench.providers import AnthropicProvider
+
+            with pytest.raises(BenchmarkError, match="anthropic package required"):
+                AnthropicProvider()
+
+    def test_name_and_model(self):
+        mock_anthropic = self._make_mock_anthropic()
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            from hwcc.bench.providers import AnthropicProvider
+
+            provider = AnthropicProvider(model="claude-sonnet-4-6")
+            assert provider.name == "anthropic"
+            assert provider.model_name == "claude-sonnet-4-6"
+
+
+class TestOpenAIProvider:
+    """Tests for OpenAIProvider with mocked openai SDK."""
+
+    def _make_mock_openai(self) -> MagicMock:
+        """Create a mock openai module with realistic response structure."""
+        mock_mod = MagicMock()
+        mock_client = MagicMock()
+        mock_mod.OpenAI.return_value = mock_client
+
+        # Build response object
+        mock_message = MagicMock()
+        mock_message.content = "0x40013000"
+        mock_choice = MagicMock()
+        mock_choice.message = mock_message
+        mock_usage = MagicMock()
+        mock_usage.prompt_tokens = 40
+        mock_usage.completion_tokens = 8
+        mock_response = MagicMock()
+        mock_response.choices = [mock_choice]
+        mock_response.usage = mock_usage
+        mock_client.chat.completions.create.return_value = mock_response
+
+        return mock_mod
+
+    def test_query_success(self):
+        mock_openai = self._make_mock_openai()
+        with patch.dict(sys.modules, {"openai": mock_openai}):
+            from hwcc.bench.providers import OpenAIProvider
+
+            provider = OpenAIProvider(model="gpt-4o")
+            response = provider.query("system prompt", "What is the base address?")
+
+        assert isinstance(response, ProviderResponse)
+        assert response.text == "0x40013000"
+        assert response.tokens_used == 48
+        assert response.latency_ms > 0
+
+    def test_query_api_error(self):
+        mock_openai = self._make_mock_openai()
+        mock_openai.OpenAI().chat.completions.create.side_effect = RuntimeError("Rate limit")
+
+        with patch.dict(sys.modules, {"openai": mock_openai}):
+            from hwcc.bench.providers import OpenAIProvider
+
+            provider = OpenAIProvider(model="gpt-4o")
+            with pytest.raises(BenchmarkError, match="OpenAI API error"):
+                provider.query("system", "question")
+
+    def test_import_error(self):
+        with patch.dict(sys.modules, {"openai": None}):
+            from hwcc.bench.providers import OpenAIProvider
+
+            with pytest.raises(BenchmarkError, match="openai package required"):
+                OpenAIProvider()
+
+    def test_name_and_model(self):
+        mock_openai = self._make_mock_openai()
+        with patch.dict(sys.modules, {"openai": mock_openai}):
+            from hwcc.bench.providers import OpenAIProvider
+
+            provider = OpenAIProvider(model="gpt-4o")
+            assert provider.name == "openai"
+            assert provider.model_name == "gpt-4o"
+
+
+class TestOllamaProvider:
+    """Tests for OllamaProvider with mocked httpx."""
+
+    def test_query_success(self):
+        from hwcc.bench.providers import OllamaProvider
+
+        provider = OllamaProvider(model="llama3.1", host="http://localhost:11434")
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "message": {"content": "0x40013000"},
+            "eval_count": 15,
+            "prompt_eval_count": 30,
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("httpx.post", return_value=mock_response):
+            response = provider.query("system prompt", "What is the base address?")
+
+        assert isinstance(response, ProviderResponse)
+        assert response.text == "0x40013000"
+        assert response.tokens_used == 45
+        assert response.latency_ms > 0
+
+    def test_query_timeout(self):
+        from hwcc.bench.providers import OllamaProvider
+
+        provider = OllamaProvider(model="llama3.1")
+
+        with (
+            patch("httpx.post", side_effect=RuntimeError("Connection timed out")),
+            pytest.raises(BenchmarkError, match="Ollama API error"),
+        ):
+            provider.query("system", "question")
+
+    def test_import_error(self):
+        from hwcc.bench.providers import OllamaProvider
+
+        provider = OllamaProvider(model="llama3.1")
+
+        with (
+            patch.dict(sys.modules, {"httpx": None}),
+            pytest.raises(BenchmarkError, match="httpx package required"),
+        ):
+            provider.query("system", "question")
+
+    def test_name_and_model(self):
+        from hwcc.bench.providers import OllamaProvider
+
+        provider = OllamaProvider(model="llama3.1")
+        assert provider.name == "ollama"
+        assert provider.model_name == "llama3.1"
+
+
+class TestCreateProviderAllTypes:
+    """Tests for create_provider() factory with all supported providers."""
+
+    def test_create_anthropic(self):
+        mock_anthropic = MagicMock()
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            provider = create_provider("anthropic", model="claude-sonnet-4-6")
+            assert provider.name == "anthropic"
+            assert provider.model_name == "claude-sonnet-4-6"
+
+    def test_create_openai(self):
+        mock_openai = MagicMock()
+        with patch.dict(sys.modules, {"openai": mock_openai}):
+            provider = create_provider("openai", model="gpt-4o")
+            assert provider.name == "openai"
+            assert provider.model_name == "gpt-4o"
+
+    def test_create_ollama(self):
+        provider = create_provider("ollama", model="llama3.1")
+        assert provider.name == "ollama"
+        assert provider.model_name == "llama3.1"
+
+    def test_create_claude_code(self):
+        provider = create_provider("claude_code", model="sonnet")
+        assert provider.name == "claude_code"
+        assert provider.model_name == "sonnet"

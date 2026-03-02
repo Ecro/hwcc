@@ -10,14 +10,14 @@ from typing import TYPE_CHECKING, Any
 from rich.console import Console
 from rich.table import Table
 
-from hwcc.bench.scoring import compute_metrics
-from hwcc.bench.types import BenchMetrics, BenchReport, BenchRun
+from hwcc.bench.scoring import compute_metrics, wilson_ci
+from hwcc.bench.types import BenchMetrics, BenchReport, BenchResponse, BenchRun
 from hwcc.exceptions import BenchmarkError
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-__all__ = ["generate_report", "print_report", "save_report"]
+__all__ = ["generate_report", "generate_report_markdown", "print_report", "save_report"]
 
 logger = logging.getLogger(__name__)
 
@@ -48,11 +48,33 @@ def generate_report(
 
     dataset_name = runs[0].dataset_name
 
-    # Compute per-condition metrics
-    metrics: dict[str, BenchMetrics] = {}
+    # Group runs by condition (supports num_runs > 1)
+    runs_by_condition: dict[str, list[BenchRun]] = {}
     for run in runs:
-        m = compute_metrics(run.responses)
-        metrics[run.condition] = m
+        runs_by_condition.setdefault(run.condition, []).append(run)
+
+    # Compute per-condition metrics (pooling responses across runs, with Wilson CI)
+    metrics: dict[str, BenchMetrics] = {}
+    for condition_name, condition_runs in runs_by_condition.items():
+        pooled: list[BenchResponse] = []
+        for r in condition_runs:
+            pooled.extend(r.responses)
+        base = compute_metrics(pooled)
+        ci_lower, ci_upper = wilson_ci(base.correct, base.total)
+        metrics[condition_name] = BenchMetrics(
+            total=base.total,
+            correct=base.correct,
+            accuracy=base.accuracy,
+            hallucination_rate=base.hallucination_rate,
+            by_category=base.by_category,
+            avg_latency_ms=base.avg_latency_ms,
+            total_tokens=base.total_tokens,
+            avg_partial_score=base.avg_partial_score,
+            expected_calibration_error=base.expected_calibration_error,
+            ci_lower=ci_lower,
+            ci_upper=ci_upper,
+            by_difficulty=base.by_difficulty,
+        )
 
     # Compute comparison (delta between no_context and best hwcc condition)
     comparison: dict[str, float] = {}
@@ -73,7 +95,6 @@ def generate_report(
             )
             comparison["baseline_accuracy"] = baseline.accuracy
             comparison["best_accuracy"] = best.accuracy
-            comparison["best_condition"] = 0.0  # Can't store string in float dict
 
     return BenchReport(
         chip=chip or runs[0].dataset_name.split("_")[0],
@@ -109,6 +130,7 @@ def print_report(report: BenchReport, console: Console | None = None) -> None:
     summary = Table(title="Accuracy by Condition", show_lines=True)
     summary.add_column("Condition", style="bold")
     summary.add_column("Accuracy", justify="right")
+    summary.add_column("95% CI", justify="right")
     summary.add_column("Partial", justify="right")
     summary.add_column("Correct", justify="right")
     summary.add_column("Total", justify="right")
@@ -124,6 +146,8 @@ def print_report(report: BenchReport, console: Console | None = None) -> None:
         else:
             accuracy_str = f"[red]{accuracy_str}[/red]"
 
+        ci_str = f"[{m.ci_lower:.1%}, {m.ci_upper:.1%}]"
+
         partial_str = f"{m.avg_partial_score:.1%}"
 
         halluc_str = f"{m.hallucination_rate:.1%}"
@@ -137,6 +161,7 @@ def print_report(report: BenchReport, console: Console | None = None) -> None:
         summary.add_row(
             condition_name,
             accuracy_str,
+            ci_str,
             partial_str,
             str(m.correct),
             str(m.total),
@@ -215,6 +240,87 @@ def print_report(report: BenchReport, console: Console | None = None) -> None:
                 console.print(f"  {cond_name}: ECE = {ece_str}")
 
     console.print()
+
+
+def generate_report_markdown(report: BenchReport) -> str:
+    """Generate a markdown-formatted benchmark report.
+
+    Args:
+        report: The benchmark report to format.
+
+    Returns:
+        Markdown string suitable for saving to .md file.
+    """
+    if not report.runs:
+        return f"# HwBench Report — {report.chip}\n\nNo benchmark results to display.\n"
+
+    lines: list[str] = []
+    lines.append(f"# HwBench Report — {report.chip}")
+    lines.append("")
+    lines.append(f"**Dataset:** {report.dataset_name}")
+    lines.append(
+        f"**Model:** {report.runs[0].model} ({report.runs[0].provider})"
+    )
+    lines.append(f"**Chip:** {report.chip}")
+    lines.append("")
+
+    # Summary table
+    lines.append("## Results")
+    lines.append("")
+    lines.append(
+        "| Condition | Accuracy | 95% CI | Partial | Correct | Total |"
+    )
+    lines.append(
+        "|-----------|----------|--------|---------|---------|-------|"
+    )
+
+    for condition_name, m in report.metrics.items():
+        ci_str = f"[{m.ci_lower:.1%}, {m.ci_upper:.1%}]"
+        lines.append(
+            f"| {condition_name} "
+            f"| {m.accuracy:.1%} "
+            f"| {ci_str} "
+            f"| {m.avg_partial_score:.1%} "
+            f"| {m.correct} "
+            f"| {m.total} |"
+        )
+
+    lines.append("")
+
+    # Impact summary (comparison)
+    if report.comparison:
+        baseline_acc = report.comparison.get("baseline_accuracy", 0.0)
+        best_acc = report.comparison.get("best_accuracy", 0.0)
+        delta = report.comparison.get("accuracy_delta", 0.0)
+
+        lines.append("## Impact Summary")
+        lines.append("")
+        lines.append(
+            f"- **Accuracy:** {baseline_acc:.1%} → {best_acc:.1%} "
+            f"(+{delta:.1%})"
+        )
+        lines.append("")
+
+    # Per-question detail
+    lines.append("## Per-Question Detail")
+    lines.append("")
+
+    for run in report.runs:
+        lines.append(f"### {run.condition}")
+        lines.append("")
+        lines.append("| Question | Correct | Answer | Expected |")
+        lines.append("|----------|---------|--------|----------|")
+        for resp in run.responses:
+            correct_mark = "Y" if resp.correct else "N"
+            lines.append(
+                f"| {resp.question_id} "
+                f"| {correct_mark} "
+                f"| {resp.extracted_answer} "
+                f"| — |"
+            )
+        lines.append("")
+
+    return "\n".join(lines)
 
 
 def save_report(report: BenchReport, path: Path) -> None:
@@ -310,6 +416,9 @@ def _dict_to_report(data: dict[str, Any]) -> BenchReport:
             total_tokens=m_data.get("total_tokens", 0),
             avg_partial_score=m_data.get("avg_partial_score", 0.0),
             expected_calibration_error=m_data.get("expected_calibration_error"),
+            ci_lower=m_data.get("ci_lower", 0.0),
+            ci_upper=m_data.get("ci_upper", 0.0),
+            by_difficulty=m_data.get("by_difficulty", {}),
         )
 
     return BenchReport(

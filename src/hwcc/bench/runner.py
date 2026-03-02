@@ -125,6 +125,7 @@ def run_benchmark(
     conditions: list[BenchCondition],
     delay_seconds: float = 0.5,
     progress_callback: ProgressCallback | None = None,
+    num_runs: int = 1,
 ) -> list[BenchRun]:
     """Execute benchmark: run all questions under each condition.
 
@@ -134,60 +135,68 @@ def run_benchmark(
         conditions: List of context conditions to test.
         delay_seconds: Delay between API calls for rate limiting.
         progress_callback: Optional callback(condition_name, question_index, total).
+        num_runs: Number of runs per condition (default 1). Multiple runs enable
+            statistical analysis (mean, std, CI).
 
     Returns:
-        List of BenchRun results, one per condition.
+        List of BenchRun results. With num_runs > 1, multiple runs per condition
+        are returned (total = len(conditions) * num_runs).
     """
     runs: list[BenchRun] = []
 
     for condition in conditions:
-        logger.info(
-            "Running condition '%s' with %d questions on %s/%s",
-            condition.name,
-            dataset.question_count,
-            provider.name,
-            provider.model_name,
-        )
+        for run_idx in range(num_runs):
+            run_label = condition.name
+            if num_runs > 1:
+                run_label = f"{condition.name} (run {run_idx + 1}/{num_runs})"
 
-        started = datetime.now(UTC).isoformat()
-        responses: list[BenchResponse] = []
-        total_tokens = 0
+            logger.info(
+                "Running %s with %d questions on %s/%s",
+                run_label,
+                dataset.question_count,
+                provider.name,
+                provider.model_name,
+            )
 
-        for i, question in enumerate(dataset.questions):
-            if progress_callback:
-                progress_callback(condition.name, i, dataset.question_count)
+            started = datetime.now(UTC).isoformat()
+            responses: list[BenchResponse] = []
+            total_tokens = 0
 
-            response, tokens = _ask_question(question, condition, provider)
-            responses.append(response)
-            total_tokens += tokens
+            for i, question in enumerate(dataset.questions):
+                if progress_callback:
+                    progress_callback(condition.name, i, dataset.question_count)
 
-            # Rate limiting
-            if delay_seconds > 0 and i < dataset.question_count - 1:
-                time.sleep(delay_seconds)
+                response, tokens = _ask_question(question, condition, provider)
+                responses.append(response)
+                total_tokens += tokens
 
-        completed = datetime.now(UTC).isoformat()
+                # Rate limiting
+                if delay_seconds > 0 and i < dataset.question_count - 1:
+                    time.sleep(delay_seconds)
 
-        run = BenchRun(
-            dataset_name=dataset.name,
-            condition=condition.name,
-            model=provider.model_name,
-            provider=provider.name,
-            temperature=0.0,
-            responses=tuple(responses),
-            started=started,
-            completed=completed,
-            total_tokens=total_tokens,
-        )
-        runs.append(run)
+            completed = datetime.now(UTC).isoformat()
 
-        metrics = compute_metrics(run.responses)
-        logger.info(
-            "Condition '%s': %d/%d correct (%.1f%% accuracy)",
-            condition.name,
-            metrics.correct,
-            metrics.total,
-            metrics.accuracy * 100,
-        )
+            run = BenchRun(
+                dataset_name=dataset.name,
+                condition=condition.name,
+                model=provider.model_name,
+                provider=provider.name,
+                temperature=0.0,
+                responses=tuple(responses),
+                started=started,
+                completed=completed,
+                total_tokens=total_tokens,
+            )
+            runs.append(run)
+
+            metrics = compute_metrics(run.responses)
+            logger.info(
+                "%s: %d/%d correct (%.1f%% accuracy)",
+                run_label,
+                metrics.correct,
+                metrics.total,
+                metrics.accuracy * 100,
+            )
 
     return runs
 

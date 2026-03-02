@@ -46,13 +46,70 @@ _PRIORITY_PERIPHERALS = [
     "FLASH",
 ]
 
-_MAX_REGISTERS_PER_PERIPHERAL = 3
-_MAX_FIELDS_PER_REGISTER = 3
+_MAX_REGISTERS_PER_PERIPHERAL = 8
+_MAX_FIELDS_PER_REGISTER = 5
+
+
+def _compute_difficulty(
+    category: str,
+    peripheral_name: str,
+    *,
+    is_single_bit: bool = False,
+    has_nonzero_reset: bool = False,
+) -> str:
+    """Compute difficulty tier for a question.
+
+    Scoring dimensions:
+    1. Peripheral commonality: checked against _PRIORITY_PERIPHERALS list.
+       Top-5 = easy baseline, 6-10 = medium, rest = hard.
+    2. Category difficulty: base_address = easy, register_offset/access_type = medium,
+       bit_field/reset_value = hard
+    3. Specificity: single-bit fields or non-zero reset values add difficulty
+
+    Returns:
+        "easy", "medium", or "hard"
+    """
+    score = 0
+
+    # Peripheral commonality — look up in priority list by prefix
+    name_upper = peripheral_name.upper()
+    peripheral_rank = len(_PRIORITY_PERIPHERALS)  # default: not in list
+    for i, prefix in enumerate(_PRIORITY_PERIPHERALS):
+        if name_upper.startswith(prefix):
+            peripheral_rank = i
+            break
+
+    if peripheral_rank >= 10:
+        score += 2
+    elif peripheral_rank >= 5:
+        score += 1
+
+    # Category difficulty
+    category_scores = {
+        "base_address": 0,
+        "access_type": 1,
+        "register_offset": 1,
+        "reset_value": 2,
+        "bit_field": 2,
+    }
+    score += category_scores.get(category, 1)
+
+    # Specificity bonus
+    if is_single_bit:
+        score += 1
+    if has_nonzero_reset:
+        score += 1
+
+    if score <= 1:
+        return "easy"
+    if score <= 3:
+        return "medium"
+    return "hard"
 
 
 def generate_dataset(
     svd_path: Path,
-    num_peripherals: int = 10,
+    num_peripherals: int = 20,
     chip: str = "",
 ) -> BenchDataset:
     """Generate a benchmark dataset from an SVD file.
@@ -97,7 +154,9 @@ def generate_dataset(
 
     questions: list[BenchQuestion] = []
     for peripheral in peripherals:
-        questions.extend(_generate_peripheral_questions(peripheral, chip_name))
+        questions.extend(
+            _generate_peripheral_questions(peripheral, chip_name)
+        )
 
     categories = tuple(sorted({q.category for q in questions}))
     dataset = BenchDataset(
@@ -183,6 +242,7 @@ def _generate_peripheral_questions(
                 question=f"What is the base address of the {name} peripheral on the {chip}?",
                 answer=f"0x{peripheral.base_address:08X}",
                 answer_format="hex",
+                difficulty=_compute_difficulty("base_address", name),
             )
         )
 
@@ -229,6 +289,7 @@ def _generate_register_questions(
     questions: list[BenchQuestion] = []
     reg_name = reg.name or "UNKNOWN"
     qid_base = f"{peripheral_name.lower()}_{reg_name.lower()}"
+    has_nonzero_reset = reg.reset_value is not None and reg.reset_value != 0
 
     # Offset question
     if reg.address_offset is not None:
@@ -245,6 +306,7 @@ def _generate_register_questions(
                 ),
                 answer=f"0x{reg.address_offset:04X}",
                 answer_format="hex",
+                difficulty=_compute_difficulty("register_offset", peripheral_name),
             )
         )
 
@@ -263,6 +325,10 @@ def _generate_register_questions(
                 ),
                 answer=f"0x{reg.reset_value:08X}",
                 answer_format="hex",
+                difficulty=_compute_difficulty(
+                    "reset_value", peripheral_name,
+                    has_nonzero_reset=has_nonzero_reset,
+                ),
             )
         )
 
@@ -290,6 +356,7 @@ def _generate_register_questions(
                     ),
                     answer=access_str,
                     answer_format="access_code",
+                    difficulty=_compute_difficulty("access_type", peripheral_name),
                 )
             )
 
@@ -323,7 +390,8 @@ def _generate_field_questions(
 
         field_name = fld.name or "UNKNOWN"
         msb = fld.bit_offset + fld.bit_width - 1
-        bit_str = f"[{msb}]" if fld.bit_width == 1 else f"[{msb}:{fld.bit_offset}]"
+        is_single_bit = fld.bit_width == 1
+        bit_str = f"[{msb}]" if is_single_bit else f"[{msb}:{fld.bit_offset}]"
 
         qid = f"{peripheral_name.lower()}_{reg_name.lower()}_{field_name.lower()}_bits"
         questions.append(
@@ -339,6 +407,10 @@ def _generate_field_questions(
                 ),
                 answer=bit_str,
                 answer_format="bit_range",
+                difficulty=_compute_difficulty(
+                    "bit_field", peripheral_name,
+                    is_single_bit=is_single_bit,
+                ),
             )
         )
 
@@ -388,7 +460,10 @@ def load_dataset(path: Path) -> BenchDataset:
         raise BenchmarkError(msg) from e
 
     try:
-        questions = tuple(BenchQuestion(**q) for q in data["questions"])
+        questions = tuple(
+            BenchQuestion(**{**q, "difficulty": q.get("difficulty", "medium")})
+            for q in data["questions"]
+        )
         return BenchDataset(
             name=data["name"],
             chip=data["chip"],

@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from hwcc.bench.scoring import (
+    _infer_category,
     compute_metrics,
     extract_answer,
     extract_confidence,
@@ -462,6 +463,144 @@ class TestCriticalFixRegressions:
         assert extract_answer("0xCAFE", "hex") == "0xCAFE"
 
 
+class TestInferCategory:
+    """Tests for _infer_category()."""
+
+    def test_simple_base_address(self):
+        assert _infer_category("spi1_base_address") == "base_address"
+
+    def test_simple_register_offset(self):
+        assert _infer_category("spi1_cr1_offset") == "register_offset"
+
+    def test_simple_bit_field(self):
+        assert _infer_category("spi1_cr1_br_bits") == "bit_field"
+
+    def test_simple_reset_value(self):
+        assert _infer_category("spi1_cr1_reset") == "reset_value"
+
+    def test_simple_access_type(self):
+        assert _infer_category("spi1_cr1_access") == "access_type"
+
+    def test_underscored_peripheral_base_address(self):
+        """USB_OTG peripheral must parse correctly."""
+        assert _infer_category("usb_otg_base_address") == "base_address"
+
+    def test_underscored_peripheral_offset(self):
+        assert _infer_category("usb_otg_fs_gotgctl_offset") == "register_offset"
+
+    def test_underscored_peripheral_bits(self):
+        assert _infer_category("usb_otg_fs_gotgctl_srqscs_bits") == "bit_field"
+
+    def test_underscored_peripheral_reset(self):
+        assert _infer_category("usb_otg_fs_gotgctl_reset") == "reset_value"
+
+    def test_underscored_peripheral_access(self):
+        assert _infer_category("usb_otg_fs_gotgctl_access") == "access_type"
+
+    def test_unknown_suffix(self):
+        assert _infer_category("spi1_cr1_something") == "unknown"
+
+    def test_empty_string(self):
+        assert _infer_category("") == "unknown"
+
+
+class TestRealisticLLMResponses:
+    """Tests for extract_answer() with realistic LLM response patterns."""
+
+    def test_markdown_bold_hex(self):
+        assert extract_answer("**0x40013000**", "hex") == "0x40013000"
+
+    def test_markdown_code_hex(self):
+        assert extract_answer("`0x40013000`", "hex") == "0x40013000"
+
+    def test_verbose_explanation_hex(self):
+        result = extract_answer(
+            "Based on RM0090, the base address of SPI1 is 0x40013000", "hex",
+        )
+        assert result == "0x40013000"
+
+    def test_multi_value_picks_first_hex(self):
+        result = extract_answer(
+            "0x40013000 or possibly 0x40014000", "hex",
+        )
+        assert result == "0x40013000"
+
+    def test_code_block_hex(self):
+        result = extract_answer("```\n0x40013000\n```", "hex")
+        assert result == "0x40013000"
+
+    def test_bit_range_prose_through_not_supported(self):
+        """'through' is not a recognized separator — only '-' and 'to' are."""
+        result = extract_answer("bits 5 through 3", "bit_range")
+        assert result == ""
+
+    def test_bare_colon_range_not_supported(self):
+        """'5:3' without brackets is not extracted — brackets required."""
+        result = extract_answer("5:3", "bit_range")
+        assert result == ""
+
+    def test_uncertain_access_response(self):
+        result = extract_answer("I think it's RO", "access_code")
+        assert result == "RO"
+
+    def test_access_with_parenthetical(self):
+        result = extract_answer("read-write (RW)", "access_code")
+        assert result == "RW"
+
+    def test_hex_with_leading_text_and_newlines(self):
+        response = (
+            "Looking at the STM32F407 reference manual:\n\n"
+            "The SPI1 peripheral base address is:\n"
+            "0x40013000\n\n"
+            "This is in the APB2 address range."
+        )
+        assert extract_answer(response, "hex") == "0x40013000"
+
+    def test_bit_range_with_bracket_in_sentence(self):
+        result = extract_answer(
+            "The BR field occupies bit positions [5:3] in CR1", "bit_range",
+        )
+        assert result == "[5:3]"
+
+    def test_access_read_only_long_form(self):
+        result = extract_answer(
+            "The register has read only access", "access_code",
+        )
+        assert result == "RO"
+
+
+class TestNormalizerEdgeCases:
+    """Tests for normalizer functions with edge-case inputs."""
+
+    def test_normalize_hex_empty_string(self):
+        result = normalize_hex("")
+        assert result == "0x0000"
+
+    def test_normalize_hex_bare_prefix(self):
+        result = normalize_hex("0x")
+        assert result == "0x0000"
+
+    def test_normalize_bit_range_empty_string(self):
+        result = normalize_bit_range("")
+        assert result == ""
+
+    def test_normalize_access_empty_string(self):
+        result = normalize_access("")
+        assert result == ""
+
+    def test_normalize_hex_whitespace_only(self):
+        result = normalize_hex("   ")
+        assert result == "0x0000"
+
+    def test_normalize_access_whitespace_only(self):
+        result = normalize_access("   ")
+        assert result == ""
+
+    def test_normalize_bit_range_whitespace_only(self):
+        result = normalize_bit_range("   ")
+        assert result == ""  # Stripped to empty, no regex match, returns empty
+
+
 class TestBenchmarkErrorInHierarchy:
     """Test that BenchmarkError is in the exception hierarchy."""
 
@@ -473,3 +612,153 @@ class TestBenchmarkErrorInHierarchy:
     def test_can_raise_and_catch(self):
         with pytest.raises(BenchmarkError, match="test error"):
             raise BenchmarkError("test error")
+
+
+class TestWilsonCI:
+    """Tests for wilson_ci() — Wilson score confidence intervals."""
+
+    def test_50_percent_accuracy(self):
+        from hwcc.bench.scoring import wilson_ci
+
+        lo, hi = wilson_ci(50, 100)
+        assert 0.39 < lo < 0.42
+        assert 0.58 < hi < 0.61
+
+    def test_95_percent_accuracy(self):
+        from hwcc.bench.scoring import wilson_ci
+
+        lo, hi = wilson_ci(95, 100)
+        assert 0.88 < lo < 0.91
+        assert 0.97 < hi < 0.99
+
+    def test_zero_successes(self):
+        from hwcc.bench.scoring import wilson_ci
+
+        lo, hi = wilson_ci(0, 100)
+        assert lo == 0.0
+        assert 0.0 < hi < 0.05
+
+    def test_all_successes(self):
+        from hwcc.bench.scoring import wilson_ci
+
+        lo, hi = wilson_ci(100, 100)
+        assert 0.95 < lo < 1.0
+        assert hi == pytest.approx(1.0)
+
+    def test_zero_trials(self):
+        from hwcc.bench.scoring import wilson_ci
+
+        lo, hi = wilson_ci(0, 0)
+        assert lo == 0.0
+        assert hi == 0.0
+
+    def test_single_trial_success(self):
+        from hwcc.bench.scoring import wilson_ci
+
+        lo, hi = wilson_ci(1, 1)
+        assert lo > 0.0
+        assert hi == 1.0
+
+    def test_single_trial_failure(self):
+        from hwcc.bench.scoring import wilson_ci
+
+        lo, hi = wilson_ci(0, 1)
+        assert lo == 0.0
+        assert hi < 1.0
+
+    def test_custom_z_value(self):
+        """z=1.645 for 90% CI should give narrower interval than z=1.96."""
+        from hwcc.bench.scoring import wilson_ci
+
+        lo_90, hi_90 = wilson_ci(50, 100, z=1.645)
+        lo_95, hi_95 = wilson_ci(50, 100, z=1.96)
+        assert (hi_95 - lo_95) > (hi_90 - lo_90)
+
+
+class TestMcNemarTest:
+    """Tests for mcnemar_test() — paired binary comparison."""
+
+    def test_identical_results_not_significant(self):
+        from hwcc.bench.scoring import mcnemar_test
+
+        a = [True, True, False, False, True]
+        b = [True, True, False, False, True]
+        stat, p_value = mcnemar_test(a, b)
+        assert p_value > 0.05
+
+    def test_very_different_results_significant(self):
+        from hwcc.bench.scoring import mcnemar_test
+
+        # a is mostly wrong, b is mostly right
+        a = [False] * 30 + [True] * 5
+        b = [True] * 30 + [True] * 5
+        stat, p_value = mcnemar_test(a, b)
+        assert p_value < 0.001
+
+    def test_symmetric_disagreement_not_significant(self):
+        """Equal discordant pairs should not be significant."""
+        from hwcc.bench.scoring import mcnemar_test
+
+        a = [True, False, True, False]
+        b = [False, True, True, False]
+        stat, p_value = mcnemar_test(a, b)
+        assert p_value > 0.05
+
+    def test_empty_lists(self):
+        from hwcc.bench.scoring import mcnemar_test
+
+        stat, p_value = mcnemar_test([], [])
+        assert stat == 0.0
+        assert p_value == 1.0
+
+    def test_no_discordant_pairs(self):
+        """All agree → not significant."""
+        from hwcc.bench.scoring import mcnemar_test
+
+        a = [True, True, True]
+        b = [True, True, True]
+        stat, p_value = mcnemar_test(a, b)
+        assert p_value == 1.0
+
+    def test_symmetric_disagreement_gives_zero_statistic(self):
+        """Edwards' correction: |b-c|=0 should give chi2=0."""
+        from hwcc.bench.scoring import mcnemar_test
+
+        a = [True, False, True, False]
+        b = [False, True, True, False]
+        stat, p_value = mcnemar_test(a, b)
+        assert stat == 0.0
+        assert p_value == 1.0
+
+
+class TestChi2SF:
+    """Tests for _chi2_sf() guard."""
+
+    def test_rejects_df_not_1(self):
+        from hwcc.bench.scoring import _chi2_sf
+
+        with pytest.raises(ValueError, match="only supports df=1"):
+            _chi2_sf(3.84, df=2)
+
+
+class TestPerDifficultyMetrics:
+    """Tests for compute_metrics() with difficulty-aware question IDs."""
+
+    def test_by_difficulty_in_metrics(self):
+        """compute_metrics with difficulty info available."""
+        from hwcc.bench.scoring import compute_metrics_with_difficulty
+
+        responses = [
+            BenchResponse("q1_base_address", "...", "0x40013000", True, 1.0, 100.0),
+            BenchResponse("q2_offset", "...", "wrong", False, 0.0, 100.0),
+            BenchResponse("q3_bits", "...", "[5:3]", True, 1.0, 100.0),
+        ]
+        difficulty_map = {
+            "q1_base_address": "easy",
+            "q2_offset": "medium",
+            "q3_bits": "hard",
+        }
+        metrics = compute_metrics_with_difficulty(responses, difficulty_map)
+        assert metrics.by_difficulty["easy"] == 1.0
+        assert metrics.by_difficulty["medium"] == 0.0
+        assert metrics.by_difficulty["hard"] == 1.0

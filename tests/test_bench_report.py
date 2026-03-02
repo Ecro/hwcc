@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from io import StringIO
 from typing import TYPE_CHECKING
 
 import pytest
+from rich.console import Console
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -94,29 +96,77 @@ class TestGenerateReport:
         # Should compare against hwcc_full (best accuracy)
         assert report.comparison["best_accuracy"] == 0.9
 
+    def test_multi_run_same_condition_aggregates_metrics(self):
+        """Multiple runs with same condition should pool responses, not overwrite."""
+        runs = [
+            _make_run("no_context", correct_count=3, total=10),
+            _make_run("no_context", correct_count=7, total=10),
+        ]
+        report = generate_report(runs, chip="TEST")
+
+        # Should have ONE metrics entry (not two), pooling 20 responses
+        assert len(report.metrics) == 1
+        m = report.metrics["no_context"]
+        assert m.total == 20  # pooled: 10 + 10
+        assert m.correct == 10  # pooled: 3 + 7
+        assert m.accuracy == pytest.approx(0.5)
+
+    def test_multi_run_preserves_all_runs(self):
+        """All BenchRun objects should be preserved even when conditions repeat."""
+        runs = [
+            _make_run("no_context", correct_count=3, total=10),
+            _make_run("no_context", correct_count=7, total=10),
+        ]
+        report = generate_report(runs, chip="TEST")
+        assert len(report.runs) == 2
+
 
 class TestPrintReport:
-    """Tests for print_report() — verify it doesn't crash."""
+    """Tests for print_report() — verify output content."""
 
-    def test_print_empty_report(self, capsys):
+    def _capture_output(self, report) -> str:
+        """Print report to a StringIO and return the text."""
+        buf = StringIO()
+        console = Console(file=buf, force_terminal=False, width=120)
+        print_report(report, console=console)
+        return buf.getvalue()
+
+    def test_print_empty_report(self):
         report = generate_report([], chip="TEST")
-        print_report(report)
-        # Should not crash
+        output = self._capture_output(report)
+        assert "No benchmark results" in output
 
-    def test_print_single_condition(self, capsys):
+    def test_print_single_condition_shows_chip(self):
         runs = [_make_run("no_context", correct_count=5, total=10)]
         report = generate_report(runs, chip="TESTCHIP")
-        print_report(report)
-        # Should not crash
+        output = self._capture_output(report)
+        assert "TESTCHIP" in output
+        assert "no_context" in output
 
-    def test_print_with_comparison(self, capsys):
+    def test_print_single_condition_shows_accuracy(self):
+        runs = [_make_run("no_context", correct_count=5, total=10)]
+        report = generate_report(runs, chip="TESTCHIP")
+        output = self._capture_output(report)
+        assert "50.0%" in output
+
+    def test_print_shows_model_name(self):
+        runs = [_make_run("no_context", correct_count=5, total=10)]
+        report = generate_report(runs, chip="TESTCHIP")
+        output = self._capture_output(report)
+        assert "test-model" in output
+
+    def test_print_with_comparison_shows_delta(self):
         runs = [
             _make_run("no_context", correct_count=3, total=10),
             _make_run("hwcc_full", correct_count=9, total=10),
         ]
         report = generate_report(runs, chip="TESTCHIP")
-        print_report(report)
-        # Should not crash
+        output = self._capture_output(report)
+        assert "no_context" in output
+        assert "hwcc_full" in output
+        assert "Impact Summary" in output
+        assert "30.0%" in output  # baseline accuracy
+        assert "90.0%" in output  # best accuracy
 
 
 class TestSaveLoadReport:
@@ -223,7 +273,7 @@ class TestSaveLoadReport:
 class TestPrintReportCalibration:
     """Tests for print_report() with calibration data."""
 
-    def test_print_with_confidence_data(self, capsys):
+    def test_print_with_confidence_data(self):
         responses = (
             BenchResponse(
                 "q0_base_address", "0x40013000", "0x40013000",
@@ -245,5 +295,104 @@ class TestPrintReportCalibration:
             total_tokens=100,
         )
         report = generate_report([run], chip="TEST")
-        print_report(report)
-        # Should not crash
+        buf = StringIO()
+        console = Console(file=buf, force_terminal=False, width=120)
+        print_report(report, console=console)
+        output = buf.getvalue()
+        assert "Confidence Calibration" in output
+        assert "ECE" in output
+
+
+class TestMarkdownReport:
+    """Tests for markdown report output."""
+
+    def test_markdown_contains_summary_table(self):
+        from hwcc.bench.report import generate_report_markdown
+
+        runs = [_make_run("no_context", correct_count=5, total=10)]
+        report = generate_report(runs, chip="TESTCHIP")
+        md = generate_report_markdown(report)
+        assert "| Condition" in md
+        assert "no_context" in md
+        assert "TESTCHIP" in md
+
+    def test_markdown_contains_accuracy(self):
+        from hwcc.bench.report import generate_report_markdown
+
+        runs = [_make_run("no_context", correct_count=5, total=10)]
+        report = generate_report(runs, chip="TESTCHIP")
+        md = generate_report_markdown(report)
+        assert "50.0%" in md
+
+    def test_markdown_contains_ci(self):
+        """Report markdown should include confidence interval values."""
+        from hwcc.bench.report import generate_report_markdown
+
+        runs = [_make_run("no_context", correct_count=5, total=10)]
+        report = generate_report(runs, chip="TESTCHIP")
+        md = generate_report_markdown(report)
+        assert "95% CI" in md
+
+    def test_markdown_contains_per_question_detail(self):
+        from hwcc.bench.report import generate_report_markdown
+
+        runs = [_make_run("no_context", correct_count=2, total=3)]
+        report = generate_report(runs, chip="TEST")
+        md = generate_report_markdown(report)
+        assert "Per-Question Detail" in md
+        assert "q0_base_address" in md
+
+    def test_markdown_contains_comparison(self):
+        from hwcc.bench.report import generate_report_markdown
+
+        runs = [
+            _make_run("no_context", correct_count=3, total=10),
+            _make_run("hwcc_full", correct_count=9, total=10),
+        ]
+        report = generate_report(runs, chip="TESTCHIP")
+        md = generate_report_markdown(report)
+        assert "Impact" in md
+
+    def test_markdown_contains_metadata(self):
+        from hwcc.bench.report import generate_report_markdown
+
+        runs = [_make_run("no_context", correct_count=5, total=10)]
+        report = generate_report(runs, chip="TESTCHIP")
+        md = generate_report_markdown(report)
+        assert "test-model" in md
+        assert "TESTCHIP" in md
+
+    def test_markdown_empty_report(self):
+        from hwcc.bench.report import generate_report_markdown
+
+        report = generate_report([], chip="TEST")
+        md = generate_report_markdown(report)
+        assert "No benchmark results" in md
+
+
+class TestPrintReportCI:
+    """Tests for CI display in Rich print_report."""
+
+    def test_print_shows_ci(self):
+        runs = [_make_run("no_context", correct_count=5, total=10)]
+        report = generate_report(runs, chip="TESTCHIP")
+        buf = StringIO()
+        console = Console(file=buf, force_terminal=False, width=120)
+        print_report(report, console=console)
+        output = buf.getvalue()
+        assert "CI" in output
+
+
+class TestReportPerQuestionDetail:
+    """Tests for per-question detail in report JSON."""
+
+    def test_per_question_in_json_round_trip(self, tmp_path: Path):
+        """Per-question details survive JSON round-trip."""
+        runs = [_make_run("no_context", correct_count=2, total=3)]
+        report = generate_report(runs, chip="TEST")
+        json_path = tmp_path / "report.json"
+        save_report(report, json_path)
+        loaded = load_report(json_path)
+
+        assert len(loaded.runs[0].responses) == 3
+        assert loaded.runs[0].responses[0].question_id == "q0_base_address"

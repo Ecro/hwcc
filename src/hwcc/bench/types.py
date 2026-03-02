@@ -27,6 +27,7 @@ class BenchQuestion:
     question: str
     answer: str  # ground truth value
     answer_format: str  # hex | bit_range | access_code
+    difficulty: str = "medium"  # easy | medium | hard
 
 
 @dataclass(frozen=True)
@@ -93,6 +94,9 @@ class BenchMetrics:
     total_tokens: int = 0
     avg_partial_score: float = 0.0  # mean of all partial scores
     expected_calibration_error: float | None = None  # ECE if confidence data available
+    ci_lower: float = 0.0  # 95% Wilson CI lower bound
+    ci_upper: float = 0.0  # 95% Wilson CI upper bound
+    by_difficulty: dict[str, float] = field(default_factory=dict)  # difficulty → accuracy
 
 
 @dataclass(frozen=True)

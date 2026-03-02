@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 from hwcc.bench.dataset import generate_dataset, load_dataset, save_dataset
+from hwcc.bench.scoring import _infer_category
 from hwcc.exceptions import BenchmarkError
 
 # Minimal SVD fixture content for testing
@@ -245,6 +246,49 @@ class TestGenerateDataset:
         dupes = [i for i in ids if ids.count(i) > 1]
         assert len(ids) == len(set(ids)), f"Duplicate IDs: {dupes}"
 
+    def test_all_question_ids_parseable_by_infer_category(self, mini_svd: Path):
+        """Contract: every generated question ID must produce a valid category."""
+        dataset = generate_dataset(mini_svd)
+        for q in dataset.questions:
+            category = _infer_category(q.id)
+            assert category != "unknown", (
+                f"Question ID {q.id!r} (category={q.category!r}) is not parseable "
+                f"by _infer_category — returns 'unknown'"
+            )
+            assert category == q.category, (
+                f"Question ID {q.id!r}: _infer_category returned {category!r} "
+                f"but question.category is {q.category!r}"
+            )
+
+    def test_raised_caps_for_credibility(self):
+        """Caps should be high enough to produce 200+ questions from real SVDs."""
+        from hwcc.bench.dataset import (
+            _MAX_FIELDS_PER_REGISTER,
+            _MAX_REGISTERS_PER_PERIPHERAL,
+        )
+
+        assert _MAX_REGISTERS_PER_PERIPHERAL >= 8
+        assert _MAX_FIELDS_PER_REGISTER >= 5
+
+    def test_all_questions_have_difficulty(self, mini_svd: Path):
+        """Every generated question must have a difficulty tag."""
+        dataset = generate_dataset(mini_svd)
+        valid_difficulties = {"easy", "medium", "hard"}
+        for q in dataset.questions:
+            assert q.difficulty in valid_difficulties, (
+                f"Question {q.id!r} has invalid difficulty: {q.difficulty!r}"
+            )
+
+    def test_difficulty_distribution_not_uniform(self, mini_svd: Path):
+        """Difficulty should vary — not all questions should be the same tier."""
+        dataset = generate_dataset(mini_svd)
+        difficulties = {q.difficulty for q in dataset.questions}
+        # Mini SVD has SPI (common) and USART (common) with varied categories,
+        # so we expect at least 2 distinct difficulty levels
+        assert len(difficulties) >= 2, (
+            f"All questions have same difficulty: {difficulties}"
+        )
+
 
 class TestSaveLoadDataset:
     """Tests for dataset JSON serialization."""
@@ -290,3 +334,42 @@ class TestSaveLoadDataset:
         incomplete.write_text('{"name": "test"}', encoding="utf-8")
         with pytest.raises(BenchmarkError, match="Invalid dataset"):
             load_dataset(incomplete)
+
+    def test_round_trip_preserves_difficulty(self, mini_svd: Path, tmp_path: Path):
+        """Difficulty field should survive JSON round-trip."""
+        dataset = generate_dataset(mini_svd)
+        json_path = tmp_path / "dataset.json"
+
+        save_dataset(dataset, json_path)
+        loaded = load_dataset(json_path)
+
+        for orig, loaded_q in zip(dataset.questions, loaded.questions, strict=True):
+            assert loaded_q.difficulty == orig.difficulty
+
+    def test_load_legacy_dataset_without_difficulty(self, tmp_path: Path):
+        """Old datasets without difficulty field should load with default 'medium'."""
+        import json
+
+        legacy = {
+            "name": "TEST",
+            "chip": "TEST",
+            "source_svd": "/tmp/test.svd",
+            "question_count": 1,
+            "questions": [{
+                "id": "spi1_base_address",
+                "category": "base_address",
+                "peripheral": "SPI1",
+                "register": "",
+                "field_name": "",
+                "question": "What is the base address?",
+                "answer": "0x40013000",
+                "answer_format": "hex",
+            }],
+            "created": "2026-03-02T00:00:00+00:00",
+            "categories": ["base_address"],
+        }
+        json_path = tmp_path / "legacy.json"
+        json_path.write_text(json.dumps(legacy), encoding="utf-8")
+
+        loaded = load_dataset(json_path)
+        assert loaded.questions[0].difficulty == "medium"
