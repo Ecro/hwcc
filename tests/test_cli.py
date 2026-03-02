@@ -290,11 +290,11 @@ class TestVerboseFlag:
 class TestStubCommands:
     """Stub commands are hidden from --help but still callable."""
 
-    def test_search_not_implemented(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def test_search_requires_project(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(app, ["search", "SPI"])
-        assert result.exit_code == 0
-        assert "not yet implemented" in result.output
+        assert result.exit_code == 1
+        assert "hwcc init" in result.output
 
     def test_mcp_not_implemented(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.chdir(tmp_path)
@@ -316,7 +316,6 @@ class TestStubCommands:
         assert "compile" in commands_section
         assert "status" in commands_section
         # Stub commands should be hidden from Commands section
-        assert "search" not in commands_section
         assert "mcp" not in commands_section
         # "context" appears in app description, so check it doesn't appear
         # as a standalone command line in the commands listing

@@ -485,16 +485,111 @@ def context(
     _not_implemented("context")
 
 
-@app.command(hidden=True)
+@app.command()
 def search(
     query: Annotated[str, typer.Argument(help="Search query")],
     top_k: Annotated[
         int,
         typer.Option("--top-k", "-k", help="Number of results"),
     ] = 5,
+    chip: Annotated[
+        str,
+        typer.Option("--chip", "-c", help="Filter by chip name"),
+    ] = "",
+    doc_type: Annotated[
+        str,
+        typer.Option("--doc-type", "-d", help="Filter by document type (svd, pdf, md, txt, dts)"),
+    ] = "",
+    peripheral: Annotated[
+        str,
+        typer.Option("--peripheral", "-p", help="Filter by peripheral name"),
+    ] = "",
+    full: Annotated[
+        bool,
+        typer.Option("--full", "-f", help="Show full chunk content (not truncated)"),
+    ] = False,
 ) -> None:
-    """Search indexed documents."""
-    _not_implemented("search")
+    """Search indexed hardware documentation."""
+    from hwcc.search import SearchEngine
+
+    pm = ProjectManager()
+    if not pm.is_initialized:
+        console.print("[yellow]No hwcc project found.[/yellow] Run [bold]hwcc init[/bold] first.")
+        raise typer.Exit(code=1)
+
+    config = load_config(pm.config_path)
+
+    # Create embedder and store
+    try:
+        embedder = default_registry.create("embedding", config.embedding.provider, config)
+        store = ChromaStore(
+            persist_path=pm.rag_dir / "index",
+            collection_name=config.store.collection_name,
+        )
+    except HwccError as e:
+        console.print(f"[red]Error initializing search:[/red] {e}")
+        raise typer.Exit(code=1) from e
+
+    if store.count() == 0:
+        console.print(
+            "[yellow]No documents indexed yet.[/yellow]"
+            " Run [bold]hwcc add[/bold] first."
+        )
+        raise typer.Exit(code=0)
+
+    engine = SearchEngine(embedder=embedder, store=store)
+
+    try:
+        results, elapsed = engine.search(
+            query, k=top_k, chip=chip, doc_type=doc_type, peripheral=peripheral,
+        )
+    except HwccError as e:
+        console.print(f"[red]Search failed:[/red] {e}")
+        raise typer.Exit(code=1) from e
+
+    if not results:
+        console.print(f"[yellow]No results for[/yellow] '{query}'")
+        raise typer.Exit(code=0)
+
+    # Display header
+    filters_desc = ""
+    if chip:
+        filters_desc += f" chip={chip}"
+    if doc_type:
+        filters_desc += f" type={doc_type}"
+    if peripheral:
+        filters_desc += f" peripheral={peripheral}"
+    console.print(
+        f"\nFound [bold]{len(results)}[/bold] result(s) for "
+        f"[cyan]'{query}'[/cyan]{filters_desc} ({elapsed:.2f}s)\n"
+    )
+
+    # Display results
+    max_content_len = 0 if full else 200
+    for i, sr in enumerate(results, 1):
+        meta = sr.chunk.metadata
+        # Build metadata line
+        parts = [f"[bold]#{i}[/bold]  Score: {sr.score:.2f}"]
+        if meta.chip:
+            parts.append(meta.chip)
+        if meta.peripheral:
+            parts[-1] += f" / {meta.peripheral}"
+        if meta.doc_type:
+            parts.append(meta.doc_type)
+        if meta.page:
+            parts.append(f"page {meta.page}")
+        if meta.section_path:
+            parts.append(meta.section_path)
+
+        header = "  │  ".join(parts)
+        console.print(header)
+        console.print("─" * min(80, len(header)))
+
+        content = sr.chunk.content.strip()
+        if max_content_len and len(content) > max_content_len:
+            content = content[:max_content_len].rstrip() + "..."
+        console.print(content)
+        console.print()
 
 
 @app.command(hidden=True)
