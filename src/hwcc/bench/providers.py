@@ -12,6 +12,7 @@ from hwcc.exceptions import BenchmarkError
 __all__ = [
     "AnthropicProvider",
     "BaseBenchProvider",
+    "ClaudeCodeProvider",
     "OllamaProvider",
     "OpenAIProvider",
     "ProviderResponse",
@@ -209,6 +210,95 @@ class OllamaProvider(BaseBenchProvider):
         return self._model
 
 
+class ClaudeCodeProvider(BaseBenchProvider):
+    """Claude Code CLI provider — uses `claude -p` subprocess.
+
+    Runs benchmark questions through the user's Claude Code subscription
+    via the `claude` CLI in print mode. No API key required.
+
+    Limitations vs API providers:
+    - No token counting (tokens_used is always 0)
+    - No temperature control
+    - Higher latency (subprocess overhead per question)
+    """
+
+    def __init__(self, model: str = "sonnet") -> None:
+        self._model = model
+
+    def query(self, system_prompt: str, user_prompt: str) -> ProviderResponse:
+        import json
+        import os
+        import subprocess
+
+        t0 = time.monotonic()
+        cmd = [
+            "claude",
+            "-p",
+            "--output-format", "json",
+            "--system-prompt", system_prompt,
+            "--model", self._model,
+            user_prompt,
+        ]
+
+        # Strip CLAUDECODE env var to allow running inside a Claude Code session
+        env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=120,
+                env=env,
+            )
+        except subprocess.TimeoutExpired as e:
+            msg = "Claude Code CLI timed out after 120s"
+            raise BenchmarkError(msg) from e
+        except OSError as e:
+            msg = f"Claude Code CLI error: {e}"
+            raise BenchmarkError(msg) from e
+
+        latency = (time.monotonic() - t0) * 1000
+
+        if result.returncode != 0:
+            msg = (
+                f"Claude Code CLI exited with code {result.returncode}: "
+                f"{result.stderr.strip()}"
+            )
+            raise BenchmarkError(msg)
+
+        try:
+            data = json.loads(result.stdout)
+        except json.JSONDecodeError as e:
+            msg = f"Failed to parse Claude Code JSON output: {e}"
+            raise BenchmarkError(msg) from e
+
+        # Output is a JSON array of events; find the "result" entry
+        if isinstance(data, list):
+            result_entry = {}
+            for entry in data:
+                if isinstance(entry, dict) and entry.get("type") == "result":
+                    result_entry = entry
+                    break
+            data = result_entry
+
+        if data.get("is_error"):
+            msg = f"Claude Code returned an error: {data.get('result', '')}"
+            raise BenchmarkError(msg)
+
+        text = data.get("result", "")
+
+        return ProviderResponse(text=text, tokens_used=0, latency_ms=latency)
+
+    @property
+    def name(self) -> str:
+        return "claude_code"
+
+    @property
+    def model_name(self) -> str:
+        return self._model
+
+
 def create_provider(
     provider_name: str,
     model: str = "",
@@ -218,7 +308,7 @@ def create_provider(
     """Factory function to create an LLM provider.
 
     Args:
-        provider_name: "anthropic", "openai", or "ollama".
+        provider_name: "anthropic", "openai", "ollama", or "claude_code".
         model: Model name (uses provider default if empty).
         temperature: Sampling temperature.
         **kwargs: Additional provider-specific arguments.
@@ -245,6 +335,8 @@ def create_provider(
             temperature=temperature,
             host=kwargs.get("host", "http://localhost:11434"),
         )
+    if provider_name == "claude_code":
+        return ClaudeCodeProvider(model=model or "sonnet")
 
-    msg = f"Unknown provider: {provider_name!r}. Supported: anthropic, openai, ollama"
+    msg = f"Unknown provider: {provider_name!r}. Supported: anthropic, openai, ollama, claude_code"
     raise BenchmarkError(msg)

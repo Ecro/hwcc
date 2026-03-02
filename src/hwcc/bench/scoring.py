@@ -110,6 +110,11 @@ def _extract_bit_range(text: str) -> str:
     if single_match:
         return f"[{single_match.group(1)}]"
 
+    # Bare number as entire response (e.g. LLM replies "15" for bit position)
+    bare = text.strip()
+    if bare.isdigit() and len(bare) <= 2:
+        return f"[{bare}]"
+
     return ""
 
 

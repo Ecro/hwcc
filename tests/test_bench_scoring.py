@@ -424,12 +424,22 @@ class TestComputeMetricsPartial:
 class TestCriticalFixRegressions:
     """Regression tests for critical fixes from v1.1 review."""
 
-    def test_bit_single_requires_bit_keyword(self):
-        """Bare numbers in text must NOT match as single-bit answers."""
+    def test_bit_single_requires_bit_keyword_in_prose(self):
+        """Bare numbers in longer text must NOT match as single-bit answers."""
         assert extract_answer("register 12 holds the value", "bit_range") == ""
 
     def test_bit_single_with_keyword_still_works(self):
         assert extract_answer("bit 5 is the enable flag", "bit_range") == "[5]"
+
+    def test_bare_number_as_entire_response(self):
+        """A bare number as the entire response should match (LLM short answer)."""
+        assert extract_answer("15", "bit_range") == "[15]"
+        assert extract_answer("7", "bit_range") == "[7]"
+        assert extract_answer("0", "bit_range") == "[0]"
+
+    def test_bare_number_too_large_rejected(self):
+        """Three-digit numbers should not match as bit positions."""
+        assert extract_answer("123", "bit_range") == ""
 
     def test_bare_hex_rejects_english_words(self):
         """Words like DEADBEEF/CAFEBABE must NOT match as hex addresses."""

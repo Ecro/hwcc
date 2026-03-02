@@ -886,7 +886,7 @@ def bench_run(
     ],
     provider: Annotated[
         str,
-        typer.Option("--provider", help="LLM provider (anthropic, openai, ollama)"),
+        typer.Option("--provider", help="LLM provider (anthropic, openai, ollama, claude_code)"),
     ] = "anthropic",
     model: Annotated[
         str,
