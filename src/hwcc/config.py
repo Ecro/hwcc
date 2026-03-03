@@ -31,11 +31,13 @@ __all__ = [
     "EmbeddingConfig",
     "HardwareConfig",
     "HwccConfig",
+    "IngestConfig",
     "LlmConfig",
     "OutputConfig",
     "ProjectConfig",
     "SoftwareConfig",
     "StoreConfig",
+    "VisionConfig",
     "default_config",
     "load_config",
     "save_config",
@@ -135,6 +137,22 @@ class OutputConfig:
 
 
 @dataclass
+class IngestConfig:
+    """[ingest] section."""
+
+    pdf_backend: str = "pymupdf"  # "pymupdf" (default) | "docling"
+
+
+@dataclass
+class VisionConfig:
+    """[vision] section — optional figure captioning for multimodal PDF parsing."""
+
+    provider: str = "none"   # "none" | "claude_cli" | "ollama" | "anthropic"
+    model: str = ""          # ollama: "llama3.2-vision"; anthropic: model name
+    api_key_env: str = ""    # anthropic: env var holding API key
+
+
+@dataclass
 class HwccConfig:
     """Root configuration combining all sections."""
 
@@ -147,6 +165,8 @@ class HwccConfig:
     store: StoreConfig = field(default_factory=StoreConfig)
     llm: LlmConfig = field(default_factory=LlmConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
+    ingest: IngestConfig = field(default_factory=IngestConfig)
+    vision: VisionConfig = field(default_factory=VisionConfig)
     pins: dict[str, str] = field(default_factory=dict)
 
 
@@ -173,6 +193,8 @@ def _config_to_dict(config: HwccConfig) -> dict[str, object]:
         "store",
         "llm",
         "output",
+        "ingest",
+        "vision",
     ):
         section = getattr(config, section_name)
         result[section_name] = _section_to_dict(section)
@@ -227,6 +249,8 @@ def load_config(path: Path) -> HwccConfig:
         "store": StoreConfig,
         "llm": LlmConfig,
         "output": OutputConfig,
+        "ingest": IngestConfig,
+        "vision": VisionConfig,
     }
 
     for name, cls in section_map.items():

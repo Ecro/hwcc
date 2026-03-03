@@ -172,11 +172,28 @@ hot_context_max_lines = 120
 |-----------|--------|--------|
 | `.svd` | CMSIS-SVD parser (cmsis-svd library) | [DONE] |
 | `.pdf` | PDF parser (PyMuPDF + pdfplumber) | [DONE] |
+| `.pdf` | DoclingPdfParser (layout + figures, opt-in) | [DONE] |
 | `.md` | Markdown normalizer | [DONE] |
 | `.txt` | Plain text passthrough | [DONE] |
 | `.dts` / `.dtsi` | Device tree parser | [DONE] |
 | `.h` / `.c` | C code parser (tree-sitter) | [FUTURE] |
 | `.ioc` | STM32CubeMX parser | [FUTURE] — vendor plugin |
+
+The default PDF backend is `[ingest] pdf_backend = "pymupdf"`. Set `pdf_backend = "docling"` to enable layout detection and figure extraction (requires `pip install hwcc[docling]`).
+
+### Vision Module [DONE]
+
+Optional figure captioning for multimodal PDF parsing. Configured via `[vision]` in `.rag/config.toml`.
+
+| ABC | Module | Purpose |
+|-----|--------|---------|
+| `BaseVisionProvider` | `hwcc.vision.base` | Abstract caption interface |
+| `NullVisionProvider` | `hwcc.vision.none` | Default no-op (placeholders only) |
+| `ClaudeCliVisionProvider` | `hwcc.vision.claude_cli` | Claude subscription via `claude -p` subprocess |
+| `OllamaVisionProvider` | `hwcc.vision.ollama` | Local Ollama vision models (llama3.2-vision) |
+| `AnthropicVisionProvider` | `hwcc.vision.anthropic` | Anthropic API (requires key) |
+
+Factory: `get_vision_provider(VisionConfig)` → `BaseVisionProvider`.
 
 ### Processing Pipeline
 
@@ -185,7 +202,7 @@ Raw Document → Extract → Clean → Structure → Chunk → Embed + Index →
                (deterministic)              (deterministic)  (local)  (deterministic)
 ```
 
-Steps 1-3 and 5 are fully deterministic — no LLM needed. Step 4 (embed) uses a local model by default. Optional LLM enrichment (image captioning, summaries) is not required.
+Steps 1-3 and 5 are fully deterministic — no LLM needed. Step 4 (embed) uses a local model by default. Optional VLM enrichment (figure captioning) requires `[vision] provider = "claude_cli"` (or ollama/anthropic) — not required.
 
 ### Chunking Strategy [DONE]
 
@@ -198,11 +215,13 @@ Steps 1-3 and 5 are fully deterministic — no LLM needed. Step 4 (embed) uses a
 
 ### Content Type Taxonomy [DONE]
 
-12 hardware-domain-aware types applied during chunking. Enables targeted retrieval:
+Hardware-domain-aware types applied during chunking. Enables targeted retrieval:
 
 `code` · `register_table` · `register_description` · `timing_spec` · `config_procedure` · `errata` · `pin_mapping` · `electrical_spec` · `api_reference` · `table` · `section` · `prose`
 
 BSP extensions: `device_tree_node` · `dt_binding` · `kernel_config` · `boot_config`
+
+Visual extensions (Docling PDF backend): `figure` · `timing_diagram` · `block_diagram` · `pinout` · `schematic_figure`
 
 ### SVD Per-Field Reset Values [DONE]
 

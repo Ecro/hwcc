@@ -10,7 +10,7 @@ import time
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 from rich.console import Console
@@ -37,7 +37,35 @@ from hwcc.project import ProjectManager
 from hwcc.registry import default_registry
 from hwcc.store import ChromaStore
 
+if TYPE_CHECKING:
+    from hwcc.config import HwccConfig
+    from hwcc.ingest.base import BaseParser
+
 __all__ = ["app"]
+
+
+def _get_pdf_parser(config: HwccConfig) -> BaseParser:
+    """Return the appropriate PDF parser based on config.ingest.pdf_backend.
+
+    Defaults to the text-only PdfParser for backward compatibility.
+    Uses DoclingPdfParser when pdf_backend = "docling", wiring in the
+    vision provider from config.vision.
+    """
+    from hwcc.ingest.pdf import PdfParser
+
+    backend = config.ingest.pdf_backend
+    if backend == "docling":
+        from hwcc.ingest.pdf_docling import DoclingPdfParser
+        from hwcc.vision import get_vision_provider
+
+        vision = get_vision_provider(config.vision)
+        return DoclingPdfParser(vision_provider=vision, fallback_on_missing_dep=True)
+
+    if backend not in ("pymupdf", ""):
+        logging.getLogger(__name__).warning(
+            "Unknown pdf_backend %r in config; using default text-only parser.", backend
+        )
+    return PdfParser()
 
 app = typer.Typer(
     name="hwcc",
@@ -331,7 +359,10 @@ def add(
 
         # Build pipeline for this file
         try:
-            parser = get_parser(info.parser_name)
+            if info.parser_name == "pdf":
+                parser = _get_pdf_parser(config)
+            else:
+                parser = get_parser(info.parser_name)
             pipeline = Pipeline(
                 parser=parser,
                 chunker=chunker,

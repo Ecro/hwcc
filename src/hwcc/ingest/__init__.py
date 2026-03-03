@@ -13,6 +13,7 @@ from hwcc.ingest.detect import (
 from hwcc.ingest.devicetree import DeviceTreeParser
 from hwcc.ingest.markdown import MarkdownParser
 from hwcc.ingest.pdf import PdfParser
+from hwcc.ingest.pdf_docling import DoclingPdfParser
 from hwcc.ingest.svd import SvdParser
 from hwcc.ingest.text import TextParser
 
@@ -20,6 +21,7 @@ __all__ = [
     "BaseParser",
     "DeviceTreeParser",
     "DocType",
+    "DoclingPdfParser",
     "FileFormat",
     "FileInfo",
     "MarkdownParser",
@@ -34,6 +36,7 @@ __all__ = [
 
 _PARSER_MAP: dict[str, type[BaseParser]] = {
     "pdf": PdfParser,
+    "pdf_docling": DoclingPdfParser,
     "svd": SvdParser,
     "markdown": MarkdownParser,
     "text": TextParser,

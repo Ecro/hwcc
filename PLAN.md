@@ -103,6 +103,22 @@ All complete: file type detection, SVD parser (P0 — per-field reset values, ac
 
 ---
 
+## v1.0 — PDF Multimodal (In Progress)
+
+**Goal**: Extract timing diagrams, block diagrams, and pinouts from hardware datasheets as searchable text.
+
+| # | Task | Description |
+|---|------|-------------|
+| ~~6.1~~ | ~~Config: `IngestConfig` + `VisionConfig`~~ | ~~New TOML sections `[ingest]` and `[vision]`~~ ✅ |
+| ~~6.2~~ | ~~`BaseVisionProvider` ABC + `NullVisionProvider`~~ | ~~Vision provider interface and no-op default~~ ✅ |
+| ~~6.3~~ | ~~`DoclingPdfParser`~~ | ~~Layout detection + figure extraction (Docling)~~ ✅ |
+| ~~6.4~~ | ~~CLI routing (`_get_pdf_parser`)~~ | ~~Config-driven parser selection in `hwcc add`~~ ✅ |
+| ~~6.5~~ | ~~Vision providers: claude_cli, ollama, anthropic~~ | ~~3 captioning backends with graceful degradation~~ ✅ |
+
+→ Detail: `docs/plans/PLAN_PDF_MULTIMODAL.md`
+
+---
+
 ## Future (No Timeline)
 
 Design and implement based on user feedback. See `docs/FUTURE.md` for full descriptions.
