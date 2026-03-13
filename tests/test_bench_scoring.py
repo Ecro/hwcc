@@ -605,6 +605,273 @@ class TestNormalizerEdgeCases:
         assert result == ""  # Stripped to empty, no regex match, returns empty
 
 
+class TestExtractText:
+    """Tests for extract_answer() with text format."""
+
+    def test_short_response_passthrough(self):
+        result = extract_answer("APB1", "text")
+        assert result == "APB1"
+
+    def test_short_sentence_passthrough(self):
+        result = extract_answer("The answer is APB1", "text")
+        assert result == "APB1"
+
+    def test_answer_colon_pattern(self):
+        result = extract_answer("Based on the datasheet, the answer is: APB1", "text")
+        assert result == "APB1"
+
+    def test_verbose_prose_extracts_answer(self):
+        result = extract_answer(
+            "Looking at the STM32F407 reference manual, the USART2 peripheral "
+            "is connected to the APB1 bus, which runs at a lower clock frequency "
+            "than APB2.",
+            "text",
+        )
+        assert result != ""
+
+    def test_empty_response(self):
+        result = extract_answer("", "text")
+        assert result == ""
+
+    def test_i_dont_know(self):
+        result = extract_answer("I don't know", "text")
+        assert result == "I don't know"
+
+
+class TestExtractNumeric:
+    """Tests for extract_answer() with numeric format."""
+
+    def test_simple_numeric(self):
+        result = extract_answer("42 MHz", "numeric")
+        assert "42" in result
+        assert "MHz" in result
+
+    def test_numeric_in_sentence(self):
+        result = extract_answer("The frequency is approximately 42 MHz", "numeric")
+        assert "42" in result
+
+    def test_decimal_numeric(self):
+        result = extract_answer("2.4 MSPS", "numeric")
+        assert "2.4" in result
+
+    def test_empty_response_numeric(self):
+        result = extract_answer("", "numeric")
+        assert result == ""
+
+    def test_no_numeric_found(self):
+        result = extract_answer("I cannot determine the value", "numeric")
+        assert result == ""
+
+
+class TestExtractNumericRange:
+    """Tests for extract_answer() with numeric_range format."""
+
+    def test_standard_range(self):
+        result = extract_answer("1.8V to 3.6V", "numeric_range")
+        assert "1.8" in result
+        assert "3.6" in result
+
+    def test_range_with_dash(self):
+        result = extract_answer("-40 to 85", "numeric_range")
+        assert "-40" in result or "40" in result
+        assert "85" in result
+
+    def test_empty_response_range(self):
+        result = extract_answer("", "numeric_range")
+        assert result == ""
+
+
+class TestExtractList:
+    """Tests for extract_answer() with list format."""
+
+    def test_comma_separated(self):
+        result = extract_answer("PA5, PA6, PA7", "list")
+        assert "PA5" in result
+        assert "PA6" in result
+        assert "PA7" in result
+
+    def test_newline_separated(self):
+        result = extract_answer("HSI\nHSE", "list")
+        assert "HSI" in result
+        assert "HSE" in result
+
+    def test_empty_response_list(self):
+        result = extract_answer("", "list")
+        assert result == ""
+
+
+class TestNormalizeNumeric:
+    """Tests for numeric unit normalization."""
+
+    def test_mhz_to_hz(self):
+        from hwcc.bench.scoring import normalize_numeric
+
+        val, unit = normalize_numeric("42 MHz")
+        assert val == 42e6
+        assert unit == "Hz"
+
+    def test_khz_to_hz(self):
+        from hwcc.bench.scoring import normalize_numeric
+
+        val, unit = normalize_numeric("42000 kHz")
+        assert val == 42e6
+        assert unit == "Hz"
+
+    def test_mv_to_v(self):
+        from hwcc.bench.scoring import normalize_numeric
+
+        val, unit = normalize_numeric("1800 mV")
+        assert val == pytest.approx(1.8)
+        assert unit == "V"
+
+    def test_ma_to_a(self):
+        from hwcc.bench.scoring import normalize_numeric
+
+        val, unit = normalize_numeric("25 mA")
+        assert val == pytest.approx(0.025)
+        assert unit == "A"
+
+    def test_us_to_s(self):
+        from hwcc.bench.scoring import normalize_numeric
+
+        val, unit = normalize_numeric("0.1 us")
+        assert val == pytest.approx(0.1e-6)
+        assert unit == "s"
+
+    def test_kb_to_b(self):
+        from hwcc.bench.scoring import normalize_numeric
+
+        val, unit = normalize_numeric("1024 KB")
+        assert val == pytest.approx(1024 * 1024)
+        assert unit == "B"
+
+    def test_bare_number(self):
+        from hwcc.bench.scoring import normalize_numeric
+
+        val, unit = normalize_numeric("42")
+        assert val == 42.0
+        assert unit == ""
+
+    def test_msps(self):
+        from hwcc.bench.scoring import normalize_numeric
+
+        val, unit = normalize_numeric("2.4 MSPS")
+        assert val == pytest.approx(2.4e6)
+        assert unit == "SPS"
+
+
+class TestScoreText:
+    """Tests for score_answer() and score_answer_partial() with text format."""
+
+    def test_exact_match(self):
+        assert score_answer("APB1", "APB1", "text") == 1.0
+
+    def test_case_insensitive_match(self):
+        assert score_answer("apb1", "APB1", "text") == 1.0
+
+    def test_substring_match(self):
+        assert score_answer("APB1 bus", "APB1", "text") == 1.0
+
+    def test_wrong_answer(self):
+        assert score_answer("APB2", "APB1", "text") == 0.0
+
+    def test_empty_extracted(self):
+        assert score_answer("", "APB1", "text") == 0.0
+
+    def test_partial_token_jaccard(self):
+        score = score_answer_partial("APB1 bus clock", "APB1", "text")
+        assert 0.0 < score <= 1.0
+
+    def test_partial_no_overlap(self):
+        score = score_answer_partial("completely wrong", "APB1", "text")
+        assert score == 0.0
+
+
+class TestScoreNumeric:
+    """Tests for score_answer() with numeric format."""
+
+    def test_exact_match(self):
+        assert score_answer("42 MHz", "42 MHz", "numeric") == 1.0
+
+    def test_equivalent_units(self):
+        assert score_answer("42000 kHz", "42 MHz", "numeric") == 1.0
+
+    def test_wrong_value(self):
+        assert score_answer("84 MHz", "42 MHz", "numeric") == 0.0
+
+    def test_wrong_unit_magnitude(self):
+        assert score_answer("42 kHz", "42 MHz", "numeric") == 0.0
+
+    def test_empty_extracted(self):
+        assert score_answer("", "42 MHz", "numeric") == 0.0
+
+    def test_partial_close_value(self):
+        score = score_answer_partial("40 MHz", "42 MHz", "numeric")
+        assert 0.0 < score < 1.0
+
+    def test_partial_exact(self):
+        assert score_answer_partial("42 MHz", "42 MHz", "numeric") == 1.0
+
+
+class TestScoreNumericRange:
+    """Tests for score_answer() with numeric_range format."""
+
+    def test_exact_match(self):
+        assert score_answer("1.8V to 3.6V", "1.8V to 3.6V", "numeric_range") == 1.0
+
+    def test_wrong_bounds(self):
+        assert score_answer("2.0V to 3.3V", "1.8V to 3.6V", "numeric_range") == 0.0
+
+    def test_empty_extracted(self):
+        assert score_answer("", "1.8V to 3.6V", "numeric_range") == 0.0
+
+    def test_partial_one_bound_correct(self):
+        score = score_answer_partial("1.8V to 3.3V", "1.8V to 3.6V", "numeric_range")
+        assert score == pytest.approx(0.5)
+
+    def test_partial_both_wrong(self):
+        score = score_answer_partial("2.0V to 3.3V", "1.8V to 3.6V", "numeric_range")
+        assert score == 0.0
+
+    def test_equivalent_units(self):
+        assert score_answer("1800 mV to 3600 mV", "1.8V to 3.6V", "numeric_range") == 1.0
+
+
+class TestScoreList:
+    """Tests for score_answer() with list format."""
+
+    def test_exact_match(self):
+        assert score_answer("HSI, HSE", "HSI, HSE", "list") == 1.0
+
+    def test_different_order(self):
+        assert score_answer("HSE, HSI", "HSI, HSE", "list") == 1.0
+
+    def test_subset_below_threshold(self):
+        # 1 of 5 = Jaccard 0.2 < 0.75
+        gt = "RCC_APB2ENR, GPIOA_MODER, GPIOA_AFRL, SPI1_CR1, SPI1_CR2"
+        assert score_answer("RCC_APB2ENR", gt, "list") == 0.0
+
+    def test_superset_with_small_extra(self):
+        # {HSI, HSE, LSI} vs {HSI, HSE} → Jaccard = 2/3 = 0.667 < 0.75
+        assert score_answer("HSI, HSE, LSI", "HSI, HSE", "list") == 0.0
+
+    def test_exact_set_match(self):
+        # Exact match → Jaccard = 1.0 >= 0.75
+        assert score_answer("HSI, HSE", "HSI, HSE", "list") == 1.0
+
+    def test_empty_extracted(self):
+        assert score_answer("", "HSI, HSE", "list") == 0.0
+
+    def test_partial_jaccard(self):
+        # 3 of 5 items match → Jaccard = 3/5 = 0.6
+        score = score_answer_partial(
+            "RCC_APB2ENR, GPIOA_MODER, GPIOA_AFRL",
+            "RCC_APB2ENR, GPIOA_MODER, GPIOA_AFRL, SPI1_CR1, SPI1_CR2",
+            "list",
+        )
+        assert score == pytest.approx(3 / 5)
+
+
 class TestBenchmarkErrorInHierarchy:
     """Test that BenchmarkError is in the exception hierarchy."""
 

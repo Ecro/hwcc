@@ -513,6 +513,137 @@ class TestPerDifficulty:
             assert loaded_diff[k] == pytest.approx(orig_diff[k])
 
 
+class TestKnowledgeGrouping:
+    """Tests for Register Knowledge vs Datasheet Knowledge category grouping."""
+
+    def test_markdown_shows_knowledge_groups(self):
+        """Markdown report should show separate groups for register vs datasheet categories."""
+        from hwcc.bench.report import generate_report_markdown
+
+        # Mix of register and datasheet question IDs
+        responses = (
+            BenchResponse("spi1_base_address", "0x40013000", "0x40013000", True, 1.0, 100.0),
+            BenchResponse("spi1_cr1_offset", "0x0000", "0x0000", True, 1.0, 100.0),
+            BenchResponse("usart2_apb_bus", "APB1", "APB1", True, 1.0, 100.0),
+            BenchResponse("vdd_range", "1.8V to 3.6V", "1.8V to 3.6V", True, 1.0, 100.0),
+        )
+        run = BenchRun(
+            dataset_name="TEST_Mixed",
+            condition="no_context",
+            model="test",
+            provider="test",
+            temperature=0.0,
+            responses=responses,
+            started="2026-03-02T00:00:00+00:00",
+            completed="2026-03-02T00:01:00+00:00",
+            total_tokens=100,
+        )
+
+        # Create dataset with mixed categories for grouping
+        questions = [
+            BenchQuestion(
+                id="spi1_base_address",
+                category="base_address",
+                peripheral="SPI1",
+                register="",
+                field_name="",
+                question="Base address?",
+                answer="0x40013000",
+                answer_format="hex",
+            ),
+            BenchQuestion(
+                id="spi1_cr1_offset",
+                category="register_offset",
+                peripheral="SPI1",
+                register="CR1",
+                field_name="",
+                question="Offset?",
+                answer="0x0000",
+                answer_format="hex",
+            ),
+            BenchQuestion(
+                id="usart2_apb_bus",
+                category="clock_config",
+                peripheral="USART2",
+                register="",
+                field_name="",
+                question="APB bus?",
+                answer="APB1",
+                answer_format="text",
+            ),
+            BenchQuestion(
+                id="vdd_range",
+                category="electrical",
+                peripheral="",
+                register="",
+                field_name="",
+                question="VDD range?",
+                answer="1.8V to 3.6V",
+                answer_format="numeric_range",
+            ),
+        ]
+        dataset = BenchDataset(
+            name="TEST_Mixed",
+            chip="TEST",
+            source_svd="",
+            question_count=4,
+            questions=tuple(questions),
+            created="2026-03-14T00:00:00+00:00",
+            categories=("base_address", "register_offset", "clock_config", "electrical"),
+        )
+
+        report = generate_report([run], chip="TEST", dataset=dataset)
+        md = generate_report_markdown(report, dataset=dataset)
+
+        # Should group into Register Knowledge and Datasheet Knowledge
+        assert "Register Knowledge" in md
+        assert "Datasheet Knowledge" in md
+
+    def test_markdown_source_ref_in_detail(self):
+        """Per-question detail should show source_ref when available."""
+        from hwcc.bench.report import generate_report_markdown
+
+        responses = (BenchResponse("usart2_apb_bus", "APB1", "APB1", True, 1.0, 100.0),)
+        run = BenchRun(
+            dataset_name="TEST_DS",
+            condition="no_context",
+            model="test",
+            provider="test",
+            temperature=0.0,
+            responses=responses,
+            started="2026-03-02T00:00:00+00:00",
+            completed="2026-03-02T00:01:00+00:00",
+            total_tokens=100,
+        )
+
+        questions = [
+            BenchQuestion(
+                id="usart2_apb_bus",
+                category="clock_config",
+                peripheral="USART2",
+                register="",
+                field_name="",
+                question="APB bus?",
+                answer="APB1",
+                answer_format="text",
+                source_ref="RM0090 Table 1",
+            ),
+        ]
+        dataset = BenchDataset(
+            name="TEST_DS",
+            chip="TEST",
+            source_svd="",
+            question_count=1,
+            questions=tuple(questions),
+            created="2026-03-14T00:00:00+00:00",
+            categories=("clock_config",),
+        )
+
+        report = generate_report([run], chip="TEST", dataset=dataset)
+        md = generate_report_markdown(report, dataset=dataset)
+        assert "RM0090 Table 1" in md
+
+
 class TestCostTracking:
     """Tests for cost estimation."""
 

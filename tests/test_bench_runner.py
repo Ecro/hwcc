@@ -417,6 +417,138 @@ class TestAskQuestion:
 # ---------------------------------------------------------------------------
 
 
+class TestPrepareConditionsRawPdf:
+    """Tests for raw_pdf condition in prepare_conditions()."""
+
+    def test_raw_pdf_condition_created(self, tmp_path: Path):
+        context_dir = tmp_path / "context"
+        context_dir.mkdir()
+        (context_dir / "raw_pdf.md").write_text("# SPI chapter\nSome content.\n", encoding="utf-8")
+
+        conditions = prepare_conditions(context_dir, chip="TESTCHIP")
+        names = [c.name for c in conditions]
+        assert "raw_pdf" in names
+
+    def test_raw_pdf_content_in_prompt(self, tmp_path: Path):
+        context_dir = tmp_path / "context"
+        context_dir.mkdir()
+        (context_dir / "raw_pdf.md").write_text("VDD range is 1.8V to 3.6V", encoding="utf-8")
+
+        conditions = prepare_conditions(context_dir, chip="TESTCHIP")
+        raw_pdf_cond = next(c for c in conditions if c.name == "raw_pdf")
+        assert "1.8V to 3.6V" in raw_pdf_cond.system_prompt
+
+    def test_raw_pdf_truncation(self, tmp_path: Path):
+        context_dir = tmp_path / "context"
+        context_dir.mkdir()
+        # Write a file larger than 400K chars
+        big_content = "A" * 500_000
+        (context_dir / "raw_pdf.md").write_text(big_content, encoding="utf-8")
+
+        conditions = prepare_conditions(context_dir, chip="TESTCHIP")
+        raw_pdf_cond = next(c for c in conditions if c.name == "raw_pdf")
+        # System prompt should contain truncated content
+        assert len(raw_pdf_cond.system_prompt) < 500_000
+
+    def test_no_raw_pdf_without_file(self, tmp_path: Path):
+        context_dir = tmp_path / "context"
+        context_dir.mkdir()
+
+        conditions = prepare_conditions(context_dir, chip="TESTCHIP")
+        names = [c.name for c in conditions]
+        assert "raw_pdf" not in names
+
+
+class TestBuildRagCondition:
+    """Tests for _build_rag_condition()."""
+
+    def test_builds_condition_from_mock_store(self):
+        from hwcc.bench.runner import _build_rag_condition
+        from hwcc.bench.types import BenchQuestion
+
+        question = BenchQuestion(
+            id="usart2_apb_bus",
+            category="clock_config",
+            peripheral="USART2",
+            register="",
+            field_name="",
+            question="What APB bus is USART2 connected to?",
+            answer="APB1",
+            answer_format="text",
+        )
+
+        # Mock store with search results
+        class MockStore:
+            def search(self, query: str, n_results: int = 5):
+                from hwcc.types import Chunk, ChunkMetadata, SearchResult
+
+                meta = ChunkMetadata(doc_id="test", doc_type="reference_manual")
+                c1 = Chunk(
+                    chunk_id="c1",
+                    content="USART2 is on APB1 bus",
+                    token_count=6,
+                    metadata=meta,
+                )
+                c2 = Chunk(
+                    chunk_id="c2",
+                    content="APB1 runs at 42 MHz",
+                    token_count=5,
+                    metadata=meta,
+                )
+                return [
+                    SearchResult(chunk=c1, score=0.9),
+                    SearchResult(chunk=c2, score=0.8),
+                ]
+
+        condition = _build_rag_condition(question, MockStore(), "TESTCHIP")
+        assert condition.name == "hwcc_rag"
+        assert "USART2 is on APB1 bus" in condition.system_prompt
+        assert "APB1 runs at 42 MHz" in condition.system_prompt
+
+    def test_rag_respects_char_budget(self):
+        from hwcc.bench.runner import _build_rag_condition
+        from hwcc.bench.types import BenchQuestion
+
+        question = BenchQuestion(
+            id="test_q",
+            category="clock_config",
+            peripheral="SPI1",
+            register="",
+            field_name="",
+            question="Test?",
+            answer="test",
+            answer_format="text",
+        )
+
+        class BigStore:
+            def search(self, query: str, n_results: int = 5):
+                from hwcc.types import Chunk, ChunkMetadata, SearchResult
+
+                meta = ChunkMetadata(doc_id="test", doc_type="reference_manual")
+                # Each chunk is 20K chars — only 1 fits in 32K
+                c1 = Chunk(
+                    chunk_id="c1",
+                    content="A" * 20_000,
+                    token_count=5000,
+                    metadata=meta,
+                )
+                c2 = Chunk(
+                    chunk_id="c2",
+                    content="B" * 20_000,
+                    token_count=5000,
+                    metadata=meta,
+                )
+                return [
+                    SearchResult(chunk=c1, score=0.9),
+                    SearchResult(chunk=c2, score=0.8),
+                ]
+
+        condition = _build_rag_condition(question, BigStore(), "TESTCHIP", max_chars=32_000)
+        # Only first chunk should fit
+        assert "A" * 20_000 in condition.system_prompt
+        assert "B" * 20_000 not in condition.system_prompt
+
+
 class TestRunBenchmarkMultiRun:
     """Tests for run_benchmark() with --runs N support."""
 

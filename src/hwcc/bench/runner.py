@@ -85,6 +85,29 @@ def prepare_conditions(
             )
         )
 
+    # Condition: raw_pdf (relevant datasheet chapters as plain text)
+    raw_pdf_path = context_dir / "raw_pdf.md"
+    if raw_pdf_path.exists():
+        raw_content = raw_pdf_path.read_text(encoding="utf-8")
+        max_raw_pdf_chars = 400_000
+        if len(raw_content) > max_raw_pdf_chars:
+            logger.warning(
+                "raw_pdf.md truncated from %d to %d chars",
+                len(raw_content),
+                max_raw_pdf_chars,
+            )
+            raw_content = raw_content[:max_raw_pdf_chars]
+        conditions.append(
+            BenchCondition(
+                name="raw_pdf",
+                system_prompt=_BASE_SYSTEM_PROMPT.format(
+                    chip=chip,
+                    context_block=f"Here is the raw datasheet text:\n\n{raw_content}",
+                ),
+                description=f"Raw PDF chapter text ({len(raw_content)} chars, no hwcc processing)",
+            )
+        )
+
     # Condition 3: Full context (hot + all relevant peripherals)
     periph_dir = context_dir / "peripherals"
     if periph_dir.is_dir():
@@ -247,4 +270,43 @@ def _ask_question(
             confidence=confidence,
         ),
         result.tokens_used,
+    )
+
+
+def _build_rag_condition(
+    question: BenchQuestion,
+    store: object,
+    chip: str,
+    top_k: int = 5,
+    max_chars: int = 32_000,
+) -> BenchCondition:
+    """Build a per-question RAG condition by querying the vector store.
+
+    Args:
+        question: The benchmark question to build context for.
+        store: A store object with a search(query, n_results) method.
+        chip: Chip name for prompt interpolation.
+        top_k: Number of chunks to retrieve.
+        max_chars: Maximum characters for assembled context.
+
+    Returns:
+        BenchCondition with retrieved chunks as context.
+    """
+    results = store.search(question.question, n_results=top_k)  # type: ignore[attr-defined]
+    chunks: list[str] = []
+    total_chars = 0
+    for result in results:
+        text = result.chunk.content
+        if total_chars + len(text) > max_chars:
+            break
+        chunks.append(text)
+        total_chars += len(text)
+    context = "\n\n---\n\n".join(chunks)
+    return BenchCondition(
+        name="hwcc_rag",
+        system_prompt=_BASE_SYSTEM_PROMPT.format(
+            chip=chip,
+            context_block=f"Here are relevant documentation excerpts:\n\n{context}",
+        ),
+        description=f"hwcc RAG: top-{top_k} chunks ({total_chars} chars)",
     )

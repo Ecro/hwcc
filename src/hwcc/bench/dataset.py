@@ -461,7 +461,13 @@ def load_dataset(path: Path) -> BenchDataset:
 
     try:
         questions = tuple(
-            BenchQuestion(**{**q, "difficulty": q.get("difficulty", "medium")})
+            BenchQuestion(
+                **{
+                    **q,
+                    "difficulty": q.get("difficulty", "medium"),
+                    "source_ref": q.get("source_ref", ""),
+                }
+            )
             for q in data["questions"]
         )
         return BenchDataset(

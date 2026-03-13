@@ -344,6 +344,68 @@ class TestSaveLoadDataset:
         for orig, loaded_q in zip(dataset.questions, loaded.questions, strict=True):
             assert loaded_q.difficulty == orig.difficulty
 
+    def test_round_trip_preserves_source_ref(self, mini_svd: Path, tmp_path: Path):
+        """source_ref field should survive JSON round-trip."""
+        from hwcc.bench.types import BenchQuestion
+
+        q = BenchQuestion(
+            id="usart2_apb_bus",
+            category="clock_config",
+            peripheral="USART2",
+            register="",
+            field_name="",
+            question="What APB bus is USART2 connected to?",
+            answer="APB1",
+            answer_format="text",
+            difficulty="medium",
+            source_ref="RM0090 Table 1, Section 2.2",
+        )
+        from hwcc.bench.types import BenchDataset
+
+        dataset = BenchDataset(
+            name="TEST_DatasheetKnowledge",
+            chip="STM32F407",
+            source_svd="",
+            question_count=1,
+            questions=(q,),
+            created="2026-03-14T00:00:00+00:00",
+            categories=("clock_config",),
+        )
+        json_path = tmp_path / "datasheet.json"
+        save_dataset(dataset, json_path)
+        loaded = load_dataset(json_path)
+        assert loaded.questions[0].source_ref == "RM0090 Table 1, Section 2.2"
+
+    def test_load_legacy_dataset_without_source_ref(self, tmp_path: Path):
+        """Old datasets without source_ref should load with default empty string."""
+        import json
+
+        legacy = {
+            "name": "TEST",
+            "chip": "TEST",
+            "source_svd": "/tmp/test.svd",
+            "question_count": 1,
+            "questions": [
+                {
+                    "id": "spi1_base_address",
+                    "category": "base_address",
+                    "peripheral": "SPI1",
+                    "register": "",
+                    "field_name": "",
+                    "question": "What is the base address?",
+                    "answer": "0x40013000",
+                    "answer_format": "hex",
+                }
+            ],
+            "created": "2026-03-02T00:00:00+00:00",
+            "categories": ["base_address"],
+        }
+        json_path = tmp_path / "legacy_no_source_ref.json"
+        json_path.write_text(json.dumps(legacy), encoding="utf-8")
+
+        loaded = load_dataset(json_path)
+        assert loaded.questions[0].source_ref == ""
+
     def test_load_legacy_dataset_without_difficulty(self, tmp_path: Path):
         """Old datasets without difficulty field should load with default 'medium'."""
         import json

@@ -26,8 +26,9 @@ class BenchQuestion:
     field_name: str  # empty for register-level questions
     question: str
     answer: str  # ground truth value
-    answer_format: str  # hex | bit_range | access_code
+    answer_format: str  # hex | bit_range | access_code | text | numeric | numeric_range | list
     difficulty: str = "medium"  # easy | medium | hard
+    source_ref: str = ""  # e.g. "RM0090 Table 1, Section 2.2" — traceability for datasheet Q&A
 
 
 @dataclass(frozen=True)

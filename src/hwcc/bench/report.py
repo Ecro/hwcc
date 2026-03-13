@@ -11,7 +11,14 @@ from rich.console import Console
 from rich.table import Table
 
 from hwcc.bench.scoring import compute_metrics_with_difficulty
-from hwcc.bench.types import BenchDataset, BenchMetrics, BenchReport, BenchResponse, BenchRun
+from hwcc.bench.types import (
+    BenchDataset,
+    BenchMetrics,
+    BenchQuestion,
+    BenchReport,
+    BenchResponse,
+    BenchRun,
+)
 from hwcc.exceptions import BenchmarkError
 
 if TYPE_CHECKING:
@@ -29,6 +36,25 @@ _COST_PER_1M_TOKENS: dict[str, float] = {
     "ollama": 0.0,
     "claude_code": 0.0,  # subscription-based
 }
+
+
+# Categories that belong to Register Knowledge (SVD-derived)
+_REGISTER_CATEGORIES = frozenset(
+    {
+        "base_address",
+        "register_offset",
+        "bit_field",
+        "reset_value",
+        "access_type",
+    }
+)
+
+
+def _knowledge_group(category: str) -> str:
+    """Classify a category into Register Knowledge or Datasheet Knowledge."""
+    if category in _REGISTER_CATEGORIES:
+        return "Register Knowledge"
+    return "Datasheet Knowledge"
 
 
 def _estimate_cost(provider: str, total_tokens: int) -> float:
@@ -288,11 +314,15 @@ def print_report(report: BenchReport, console: Console | None = None) -> None:
     console.print()
 
 
-def generate_report_markdown(report: BenchReport) -> str:
+def generate_report_markdown(
+    report: BenchReport,
+    dataset: BenchDataset | None = None,
+) -> str:
     """Generate a markdown-formatted benchmark report.
 
     Args:
         report: The benchmark report to format.
+        dataset: Optional dataset for source_ref display and category grouping.
 
     Returns:
         Markdown string suitable for saving to .md file.
@@ -374,18 +404,70 @@ def generate_report_markdown(report: BenchReport) -> str:
         lines.append(f"- **Accuracy:** {baseline_acc:.1%} → {best_acc:.1%} (+{delta:.1%})")
         lines.append("")
 
+    # Knowledge group breakdown (if dataset has mixed categories)
+    question_map: dict[str, BenchQuestion] = {}
+    if dataset:
+        question_map = {q.id: q for q in dataset.questions}
+        # Check if we have both register and datasheet categories
+        groups: dict[str, list[str]] = {}
+        for q in dataset.questions:
+            group = _knowledge_group(q.category)
+            groups.setdefault(group, []).append(q.category)
+        if len(groups) > 1:
+            lines.append("## Accuracy by Knowledge Group")
+            lines.append("")
+            condition_names = list(report.metrics.keys())
+            header = "| Knowledge Group | " + " | ".join(condition_names) + " |"
+            sep = (
+                "|-----------------|" + "|".join("-" * (len(n) + 2) for n in condition_names) + "|"
+            )
+            lines.append(header)
+            lines.append(sep)
+            for group_name in ["Register Knowledge", "Datasheet Knowledge"]:
+                if group_name not in groups:
+                    continue
+                row_parts = [f"| {group_name} "]
+                for cond_name in condition_names:
+                    m = report.metrics[cond_name]
+                    # Sum accuracy for categories in this group
+                    group_cats = set(groups[group_name])
+                    cat_accs = [m.by_category[c] for c in group_cats if c in m.by_category]
+                    if cat_accs:
+                        avg = sum(cat_accs) / len(cat_accs)
+                        row_parts.append(f"| {avg:.1%} ")
+                    else:
+                        row_parts.append("| — ")
+                row_parts.append("|")
+                lines.append("".join(row_parts))
+            lines.append("")
+
     # Per-question detail
     lines.append("## Per-Question Detail")
     lines.append("")
 
+    has_source_ref = any(q.source_ref for q in question_map.values()) if question_map else False
     for run in report.runs:
         lines.append(f"### {run.condition}")
         lines.append("")
-        lines.append("| Question | Correct | Answer | Expected |")
-        lines.append("|----------|---------|--------|----------|")
+        if has_source_ref:
+            lines.append("| Question | Correct | Answer | Expected | Source |")
+            lines.append("|----------|---------|--------|----------|--------|")
+        else:
+            lines.append("| Question | Correct | Answer | Expected |")
+            lines.append("|----------|---------|--------|----------|")
         for resp in run.responses:
             correct_mark = "Y" if resp.correct else "N"
-            lines.append(f"| {resp.question_id} | {correct_mark} | {resp.extracted_answer} | — |")
+            if has_source_ref:
+                q_info = question_map.get(resp.question_id)
+                ref = q_info.source_ref if q_info else ""
+                lines.append(
+                    f"| {resp.question_id} | {correct_mark} "
+                    f"| {resp.extracted_answer} | — | {ref} |"
+                )
+            else:
+                lines.append(
+                    f"| {resp.question_id} | {correct_mark} | {resp.extracted_answer} | — |"
+                )
         lines.append("")
 
     return "\n".join(lines)

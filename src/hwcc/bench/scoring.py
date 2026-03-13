@@ -16,6 +16,7 @@ __all__ = [
     "normalize_access",
     "normalize_bit_range",
     "normalize_hex",
+    "normalize_numeric",
     "score_answer",
     "score_answer_partial",
     "wilson_ci",
@@ -47,6 +48,83 @@ _CONFIDENCE_DECIMAL_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Numeric extraction: number + optional unit
+_NUMERIC_RE = re.compile(
+    r"(-?\d+\.?\d*)\s*(MHz|mhz|Mhz|kHz|KHz|GHz|Hz|hz|"
+    r"mV|mv|V|v|volt|volts|"
+    r"uA|ua|µA|mA|ma|A|amp|amps|"
+    r"ns|us|µs|ms|s|sec|"
+    r"KB|kB|MB|"
+    r"MSPS|Msps|ksps|kSPS|SPS|"
+    r"wait\s+states?)(?:\b|$)",
+    re.IGNORECASE,
+)
+_NUMERIC_BARE_RE = re.compile(r"(-?\d+\.?\d*)")
+
+# Numeric range: "X to Y" or "X - Y" with optional units
+_RANGE_RE = re.compile(
+    r"(-?\d+\.?\d*)\s*([a-zA-Z\u00b0\u00b5]*)\s*(?:to|-|\u2013|\u2014)\s*(-?\d+\.?\d*)\s*([a-zA-Z\u00b0\u00b5]*)",
+)
+
+# Unit normalization table
+_UNIT_TABLE: dict[str, tuple[str, float]] = {
+    "hz": ("Hz", 1.0),
+    "khz": ("Hz", 1e3),
+    "mhz": ("Hz", 1e6),
+    "ghz": ("Hz", 1e9),
+    "v": ("V", 1.0),
+    "volt": ("V", 1.0),
+    "volts": ("V", 1.0),
+    "mv": ("V", 1e-3),
+    "a": ("A", 1.0),
+    "amp": ("A", 1.0),
+    "amps": ("A", 1.0),
+    "ma": ("A", 1e-3),
+    "ua": ("A", 1e-6),
+    "µa": ("A", 1e-6),
+    "s": ("s", 1.0),
+    "sec": ("s", 1.0),
+    "ms": ("s", 1e-3),
+    "us": ("s", 1e-6),
+    "µs": ("s", 1e-6),
+    "ns": ("s", 1e-9),
+    "kb": ("B", 1024.0),
+    "mb": ("B", 1048576.0),
+    "msps": ("SPS", 1e6),
+    "ksps": ("SPS", 1e3),
+    "sps": ("SPS", 1.0),
+    "\u00b0c": ("\u00b0C", 1.0),
+    "\u00b0f": ("\u00b0F", 1.0),
+}
+
+# Text scoring stopwords
+_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "is",
+        "are",
+        "of",
+        "on",
+        "in",
+        "to",
+        "for",
+        "it",
+        "and",
+        "or",
+        "that",
+        "this",
+        "was",
+        "be",
+        "at",
+        "by",
+    }
+)
+
+# Answer extraction patterns for text format
+_ANSWER_IS_RE = re.compile(r"(?:is|=|:)\s+(.+?)(?:\.|,|\n|$)", re.IGNORECASE)
+
 
 def extract_answer(raw_response: str, answer_format: str) -> str:
     """Extract the answer value from an LLM response.
@@ -72,6 +150,14 @@ def extract_answer(raw_response: str, answer_format: str) -> str:
         return _extract_bit_range(text)
     if answer_format == "access_code":
         return _extract_access(text)
+    if answer_format == "text":
+        return _extract_text(text)
+    if answer_format == "numeric":
+        return _extract_numeric(text)
+    if answer_format == "numeric_range":
+        return _extract_numeric_range(text)
+    if answer_format == "list":
+        return _extract_list(text)
     return text
 
 
@@ -128,6 +214,105 @@ def _extract_access(text: str) -> str:
     if match:
         return normalize_access(match.group(1))
     return ""
+
+
+def _extract_text(text: str) -> str:
+    """Extract a text answer from a response.
+
+    Short responses (<= 20 words) pass through directly.
+    Longer ones use pattern matching: "is X", "answer: X", "= X".
+    Fallback: last sentence.
+    """
+    if not text:
+        return ""
+    words = text.split()
+    if len(words) <= 20:
+        # Look for "is X" pattern even in short text
+        match = _ANSWER_IS_RE.search(text)
+        if match:
+            return match.group(1).strip()
+        return text
+
+    # Try pattern-based extraction
+    match = _ANSWER_IS_RE.search(text)
+    if match:
+        return match.group(1).strip()
+
+    # Fallback: last sentence
+    sentences = [s.strip() for s in re.split(r"[.!?\n]", text) if s.strip()]
+    return sentences[-1] if sentences else text
+
+
+def _extract_numeric(text: str) -> str:
+    """Extract a numeric value with unit from text."""
+    if not text:
+        return ""
+    match = _NUMERIC_RE.search(text)
+    if match:
+        num = match.group(1)
+        unit = match.group(2).strip()
+        # Normalize "wait states" → "wait states"
+        return f"{num} {unit}"
+
+    # Try bare number
+    match = _NUMERIC_BARE_RE.search(text)
+    if match:
+        return match.group(1)
+    return ""
+
+
+def _extract_numeric_range(text: str) -> str:
+    """Extract a numeric range (min-max) from text."""
+    if not text:
+        return ""
+    match = _RANGE_RE.search(text)
+    if match:
+        lo_val = match.group(1)
+        lo_unit = match.group(2)
+        hi_val = match.group(3)
+        hi_unit = match.group(4) or lo_unit
+        return f"{lo_val}{lo_unit} to {hi_val}{hi_unit}"
+    return ""
+
+
+def _extract_list(text: str) -> str:
+    """Extract a list of items from text.
+
+    Splits on comma, newline, or bullet points.
+    Returns comma-separated normalized list.
+    """
+    if not text:
+        return ""
+    # Split on comma, newline, bullet, or numbered list markers
+    items = re.split(r"[,\n]|(?:^|\n)\s*[-•*]\s*|(?:^|\n)\s*\d+\.\s*", text)
+    cleaned = [re.sub(r"^[-•*]\s*", "", item).strip() for item in items if item.strip()]
+    cleaned = [item for item in cleaned if item]
+    return ", ".join(cleaned)
+
+
+def normalize_numeric(value: str) -> tuple[float, str]:
+    """Normalize a numeric value with unit to canonical base unit.
+
+    Returns:
+        Tuple of (normalized_value, canonical_unit).
+        For bare numbers, unit is empty string.
+    """
+    text = value.strip()
+    match = _NUMERIC_RE.search(text)
+    if match:
+        num = float(match.group(1))
+        raw_unit = match.group(2).strip().lower()
+        # Handle "wait states" as text unit
+        if "wait" in raw_unit:
+            return num, "wait_states"
+        canonical, multiplier = _UNIT_TABLE.get(raw_unit, ("", 1.0))
+        return num * multiplier, canonical
+
+    # Try bare number
+    bare = _NUMERIC_BARE_RE.search(text)
+    if bare:
+        return float(bare.group(1)), ""
+    return 0.0, ""
 
 
 def extract_confidence(raw_response: str) -> float | None:
@@ -285,6 +470,14 @@ def score_answer(
         return 1.0 if normalize_bit_range(extracted) == normalize_bit_range(ground_truth) else 0.0
     if answer_format == "access_code":
         return 1.0 if normalize_access(extracted) == normalize_access(ground_truth) else 0.0
+    if answer_format == "text":
+        return _score_text(extracted, ground_truth)
+    if answer_format == "numeric":
+        return _score_numeric(extracted, ground_truth)
+    if answer_format == "numeric_range":
+        return _score_numeric_range(extracted, ground_truth)
+    if answer_format == "list":
+        return _score_list(extracted, ground_truth)
 
     return 1.0 if extracted.strip() == ground_truth.strip() else 0.0
 
@@ -321,6 +514,14 @@ def score_answer_partial(
         return _partial_bit_range(extracted, ground_truth)
     if answer_format == "access_code":
         return 1.0 if normalize_access(extracted) == normalize_access(ground_truth) else 0.0
+    if answer_format == "text":
+        return _partial_text(extracted, ground_truth)
+    if answer_format == "numeric":
+        return _partial_numeric(extracted, ground_truth)
+    if answer_format == "numeric_range":
+        return _partial_numeric_range(extracted, ground_truth)
+    if answer_format == "list":
+        return _partial_list(extracted, ground_truth)
 
     return 1.0 if extracted.strip() == ground_truth.strip() else 0.0
 
@@ -371,6 +572,203 @@ def _range_to_bit_set(normalized: str) -> set[int]:
         lsb = int(lsb_str)
         return set(range(lsb, msb + 1))
     return {msb}
+
+
+def _normalize_text(text: str) -> str:
+    """Lowercase, strip, remove articles."""
+    t = text.strip().lower()
+    words = t.split()
+    return " ".join(w for w in words if w not in {"a", "an", "the"})
+
+
+def _tokenize(text: str) -> set[str]:
+    """Split into tokens, remove stopwords, lowercase, strip punctuation."""
+    words = re.split(r"[\s,;:()]+", text.lower())
+    return {
+        w.strip(".,;:()[]") for w in words if w.strip(".,;:()[]") and w.lower() not in _STOPWORDS
+    }
+
+
+def _score_text(extracted: str, ground_truth: str) -> float:
+    """Binary text scoring: 1.0 if normalized ground_truth is substring of extracted."""
+    if not extracted:
+        return 0.0
+    gt_norm = _normalize_text(ground_truth)
+    ext_norm = _normalize_text(extracted)
+    return 1.0 if gt_norm in ext_norm else 0.0
+
+
+def _partial_text(extracted: str, ground_truth: str) -> float:
+    """Partial text scoring: token Jaccard coefficient."""
+    if not extracted:
+        return 0.0
+    gt_tokens = _tokenize(ground_truth)
+    ext_tokens = _tokenize(extracted)
+    if not gt_tokens and not ext_tokens:
+        return 1.0
+    if not gt_tokens or not ext_tokens:
+        return 0.0
+    intersection = gt_tokens & ext_tokens
+    union = gt_tokens | ext_tokens
+    return len(intersection) / len(union) if union else 0.0
+
+
+def _score_numeric(extracted: str, ground_truth: str) -> float:
+    """Binary numeric scoring: exact match after unit normalization."""
+    if not extracted:
+        return 0.0
+    ext_val, ext_unit = normalize_numeric(extracted)
+    gt_val, gt_unit = normalize_numeric(ground_truth)
+    if ext_unit == gt_unit:
+        if gt_val == 0:
+            return 1.0 if ext_val == 0 else 0.0
+        return 1.0 if abs(ext_val - gt_val) / abs(gt_val) < 1e-6 else 0.0
+    # Unit mismatch — try two fallbacks:
+    # 1. Compare normalized values directly (handles "16000000" vs "16 MHz")
+    if ext_val != 0 and gt_val != 0 and abs(ext_val - gt_val) / abs(gt_val) < 1e-6:
+        return 1.0
+    # 2. Compare raw numeric parts (handles "1024" vs "1024 KB")
+    if ext_unit == "" or gt_unit == "":
+        raw_ext = _NUMERIC_BARE_RE.search(extracted)
+        raw_gt = _NUMERIC_BARE_RE.search(ground_truth)
+        if raw_ext and raw_gt:
+            re_val, rg_val = float(raw_ext.group(1)), float(raw_gt.group(1))
+            if rg_val == 0:
+                return 1.0 if re_val == 0 else 0.0
+            if abs(re_val - rg_val) / abs(rg_val) < 1e-6:
+                return 1.0
+    return 0.0
+
+
+def _partial_numeric(extracted: str, ground_truth: str) -> float:
+    """Partial numeric scoring: ratio-based."""
+    if not extracted:
+        return 0.0
+    ext_val, ext_unit = normalize_numeric(extracted)
+    gt_val, gt_unit = normalize_numeric(ground_truth)
+
+    def _ratio(a: float, b: float) -> float:
+        if b == 0:
+            return 1.0 if a == 0 else 0.0
+        return max(0.0, 1.0 - min(1.0, abs(a - b) / abs(b)))
+
+    if ext_unit == gt_unit:
+        return _ratio(ext_val, gt_val)
+    # Unit mismatch — try normalized values directly (handles "16000000" vs "16 MHz")
+    if ext_val != 0 and gt_val != 0:
+        ratio = _ratio(ext_val, gt_val)
+        if ratio > 0:
+            return ratio
+    # Fallback: compare raw numeric parts (handles "1024" vs "1024 KB")
+    if ext_unit == "" or gt_unit == "":
+        raw_ext = _NUMERIC_BARE_RE.search(extracted)
+        raw_gt = _NUMERIC_BARE_RE.search(ground_truth)
+        if raw_ext and raw_gt:
+            return _ratio(float(raw_ext.group(1)), float(raw_gt.group(1)))
+    return 0.0
+
+
+def _score_numeric_range(extracted: str, ground_truth: str) -> float:
+    """Binary numeric range scoring: both bounds must match after normalization."""
+    if not extracted:
+        return 0.0
+    ext_lo, ext_hi, ext_unit = _parse_range(extracted)
+    gt_lo, gt_hi, gt_unit = _parse_range(ground_truth)
+    if ext_unit != gt_unit and ext_unit != "" and gt_unit != "":
+        return 0.0
+    lo_ok = abs(ext_lo - gt_lo) < 1e-6 * max(1, abs(gt_lo)) if gt_lo != 0 else ext_lo == 0
+    hi_ok = abs(ext_hi - gt_hi) < 1e-6 * max(1, abs(gt_hi)) if gt_hi != 0 else ext_hi == 0
+    return 1.0 if lo_ok and hi_ok else 0.0
+
+
+def _partial_numeric_range(extracted: str, ground_truth: str) -> float:
+    """Partial numeric range scoring: 0.5 per matching bound."""
+    if not extracted:
+        return 0.0
+    ext_lo, ext_hi, ext_unit = _parse_range(extracted)
+    gt_lo, gt_hi, gt_unit = _parse_range(ground_truth)
+    if ext_unit != gt_unit and ext_unit != "" and gt_unit != "":
+        return 0.0
+    score = 0.0
+    if abs(ext_lo - gt_lo) < 1e-6 * max(1, abs(gt_lo)):
+        score += 0.5
+    if abs(ext_hi - gt_hi) < 1e-6 * max(1, abs(gt_hi)):
+        score += 0.5
+    return score
+
+
+def _parse_range(text: str) -> tuple[float, float, str]:
+    """Parse a numeric range string into (lo, hi, canonical_unit)."""
+    match = _RANGE_RE.search(text)
+    if not match:
+        return 0.0, 0.0, ""
+    lo_raw = match.group(1)
+    lo_unit_raw = match.group(2) or ""
+    hi_raw = match.group(3)
+    hi_unit_raw = match.group(4) or ""
+
+    # Inherit unit: if one side lacks a unit, take it from the other
+    if not lo_unit_raw and hi_unit_raw:
+        lo_unit_raw = hi_unit_raw
+    elif lo_unit_raw and not hi_unit_raw:
+        hi_unit_raw = lo_unit_raw
+
+    lo_val = float(lo_raw)
+    hi_val = float(hi_raw)
+
+    # Normalize units
+    lo_unit_key = lo_unit_raw.lower()
+    hi_unit_key = hi_unit_raw.lower()
+    if lo_unit_key in _UNIT_TABLE:
+        canonical, mult = _UNIT_TABLE[lo_unit_key]
+        lo_val *= mult
+    else:
+        canonical = lo_unit_raw
+
+    if hi_unit_key in _UNIT_TABLE:
+        _, mult = _UNIT_TABLE[hi_unit_key]
+        hi_val *= mult
+
+    return lo_val, hi_val, canonical
+
+
+def _score_list(extracted: str, ground_truth: str) -> float:
+    """Binary list scoring: Jaccard >= 0.75 → 1.0, else 0.0."""
+    if not extracted:
+        return 0.0
+    ext_set = _list_to_set(extracted)
+    gt_set = _list_to_set(ground_truth)
+    if not gt_set:
+        return 1.0 if not ext_set else 0.0
+    jaccard = _set_jaccard(ext_set, gt_set)
+    return 1.0 if jaccard >= 0.75 else 0.0
+
+
+def _partial_list(extracted: str, ground_truth: str) -> float:
+    """Partial list scoring: raw Jaccard coefficient."""
+    if not extracted:
+        return 0.0
+    ext_set = _list_to_set(extracted)
+    gt_set = _list_to_set(ground_truth)
+    if not gt_set and not ext_set:
+        return 1.0
+    return _set_jaccard(ext_set, gt_set)
+
+
+def _list_to_set(text: str) -> set[str]:
+    """Convert a comma/newline separated list to a normalized set."""
+    items = re.split(r"[,\n]|(?:^|\n)\s*[-•*]\s*|(?:^|\n)\s*\d+\.\s*", text)
+    return {item.strip().lower() for item in items if item.strip()}
+
+
+def _set_jaccard(a: set[str], b: set[str]) -> float:
+    """Compute Jaccard index of two sets."""
+    if not a and not b:
+        return 1.0
+    union = a | b
+    if not union:
+        return 0.0
+    return len(a & b) / len(union)
 
 
 def compute_metrics(responses: tuple[BenchResponse, ...] | list[BenchResponse]) -> BenchMetrics:
