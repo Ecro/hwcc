@@ -1233,6 +1233,10 @@ def bench_run(
         int,
         typer.Option("--rag-top-k", min=1, help="Chunks to retrieve per question for hwcc_rag"),
     ] = 5,
+    svd_path: Annotated[
+        str,
+        typer.Option("--svd-path", help="Path to SVD file for svd_lookup/hybrid conditions"),
+    ] = "",
 ) -> None:
     """Run benchmark against an LLM provider."""
     if output_format not in ("json", "markdown"):
@@ -1279,10 +1283,10 @@ def bench_run(
     all_conditions = prepare_conditions(ctx_path, dataset.chip, peripheral_names)
     filtered = [c for c in all_conditions if c.name in requested_conditions]
 
-    # Add hwcc_rag placeholder if requested (handled per-question in runner)
-    if "hwcc_rag" in requested_conditions and not any(c.name == "hwcc_rag" for c in filtered):
-        from hwcc.bench.types import BenchCondition
+    # Add placeholder conditions for modes that don't come from prepare_conditions()
+    from hwcc.bench.types import BenchCondition
 
+    if "hwcc_rag" in requested_conditions and not any(c.name == "hwcc_rag" for c in filtered):
         filtered.append(
             BenchCondition(
                 name="hwcc_rag",
@@ -1290,6 +1294,48 @@ def bench_run(
                 description="hwcc RAG: per-question vector search",
             )
         )
+    if "svd_lookup" in requested_conditions and not any(c.name == "svd_lookup" for c in filtered):
+        filtered.append(
+            BenchCondition(
+                name="svd_lookup",
+                system_prompt="",
+                description="Direct SVD lookup (no LLM)",
+            )
+        )
+    if "hybrid" in requested_conditions and not any(c.name == "hybrid" for c in filtered):
+        filtered.append(
+            BenchCondition(
+                name="hybrid",
+                system_prompt="",
+                description="Hybrid router: SVD lookup + LLM fallback",
+            )
+        )
+
+    # Parse SVD device if svd_lookup or hybrid requested
+    svd_device = None
+    needs_svd = any(c.name in ("svd_lookup", "hybrid") for c in filtered)
+    if needs_svd:
+        svd_file = Path(svd_path) if svd_path else None
+        # Auto-detect from dataset source_svd if not provided
+        if svd_file is None and dataset.source_svd:
+            candidate = Path(dataset.source_svd)
+            if candidate.exists():
+                svd_file = candidate
+        if svd_file is None or not svd_file.exists():
+            console.print(
+                "[red]svd_lookup/hybrid requires --svd-path"
+                " or a valid source_svd in the dataset.[/red]"
+            )
+            raise typer.Exit(code=1)
+        try:
+            from cmsis_svd.parser import SVDParser
+
+            parser = SVDParser.for_xml_file(str(svd_file))
+            svd_device = parser.get_device()
+            console.print(f"  SVD: {svd_file.name}")
+        except Exception as e:
+            console.print(f"[red]Failed to parse SVD file:[/red] {e}")
+            raise typer.Exit(code=1) from e
 
     # Set up SearchEngine if hwcc_rag requested
     search_engine = None
@@ -1323,7 +1369,8 @@ def bench_run(
     if not filtered:
         console.print(
             f"[red]No valid conditions found.[/red] "
-            f"Available: {', '.join(c.name for c in all_conditions)}, hwcc_rag"
+            f"Available: {', '.join(c.name for c in all_conditions)}"
+            ", hwcc_rag, svd_lookup, hybrid"
         )
         raise typer.Exit(code=1)
 
@@ -1354,6 +1401,7 @@ def bench_run(
                 num_runs=runs,
                 search_engine=search_engine,
                 rag_top_k=rag_top_k,
+                svd_device=svd_device,
             )
         except BenchmarkError as e:
             console.print(f"\n[red]Benchmark error:[/red] {e}")

@@ -752,3 +752,238 @@ class TestRunBenchmarkMultiRun:
         )
 
         assert provider._call_count == 6  # 2 questions x 3 runs
+
+
+# ---------------------------------------------------------------------------
+# TestRunBenchmarkSvdLookup
+# ---------------------------------------------------------------------------
+
+
+class TestRunBenchmarkSvdLookup:
+    """Tests for run_benchmark() with svd_lookup condition."""
+
+    @staticmethod
+    def _mock_device():
+        """Create mock SVDDevice matching _make_dataset() questions."""
+        from unittest.mock import MagicMock
+
+        reg_cr1 = MagicMock()
+        reg_cr1.name = "CR1"
+        reg_cr1.address_offset = 0x00
+        reg_cr1.reset_value = 0x00000000
+        reg_cr1.access = MagicMock()
+        reg_cr1.access.name = "READ_WRITE"
+        reg_cr1.fields = []
+
+        periph = MagicMock()
+        periph.name = "SPI1"
+        periph.base_address = 0x40013000
+        periph.registers = [reg_cr1]
+
+        device = MagicMock()
+        device.peripherals = [periph]
+        return device
+
+    def test_svd_lookup_produces_responses_without_calling_provider(self):
+        """svd_lookup answers directly from SVD data, provider not called."""
+        dataset = _make_dataset()
+        provider = _MockProvider(answer="should_not_be_used")
+        conditions = [
+            BenchCondition("svd_lookup", "", "SVD lookup"),
+        ]
+
+        runs = run_benchmark(
+            dataset,
+            provider,
+            conditions,
+            delay_seconds=0,
+            svd_device=self._mock_device(),
+        )
+
+        assert len(runs) == 1
+        assert runs[0].condition == "svd_lookup"
+        assert len(runs[0].responses) == 2
+        # First question (base_address) should be correct
+        assert runs[0].responses[0].correct is True
+        assert runs[0].responses[0].extracted_answer == "0x40013000"
+        # Provider should NOT have been called
+        assert provider._call_count == 0
+        # No tokens used
+        assert runs[0].total_tokens == 0
+
+    def test_svd_lookup_skipped_without_device(self):
+        """svd_lookup condition is skipped when no svd_device provided."""
+        dataset = _make_dataset()
+        provider = _MockProvider(answer="0x40013000")
+        conditions = [
+            BenchCondition("no_context", "prompt", "No context"),
+            BenchCondition("svd_lookup", "", "SVD lookup"),
+        ]
+
+        runs = run_benchmark(
+            dataset,
+            provider,
+            conditions,
+            delay_seconds=0,
+        )
+
+        assert len(runs) == 1
+        assert runs[0].condition == "no_context"
+
+    def test_svd_lookup_unanswerable_scores_zero(self):
+        """Questions outside SVD categories get score 0."""
+        questions = (
+            BenchQuestion(
+                id="test_clock",
+                category="clock_config",
+                peripheral="SPI1",
+                register="",
+                field_name="",
+                question="What clock bus is SPI1 on?",
+                answer="APB2",
+                answer_format="text",
+            ),
+        )
+        dataset = _make_dataset(questions=questions)
+        provider = _MockProvider(answer="unused")
+        conditions = [
+            BenchCondition("svd_lookup", "", "SVD lookup"),
+        ]
+
+        runs = run_benchmark(
+            dataset,
+            provider,
+            conditions,
+            delay_seconds=0,
+            svd_device=self._mock_device(),
+        )
+
+        assert len(runs) == 1
+        assert runs[0].responses[0].correct is False
+        assert runs[0].responses[0].score == 0.0
+        assert runs[0].responses[0].raw_response == "[SVD_UNANSWERABLE]"
+
+
+# ---------------------------------------------------------------------------
+# TestRunBenchmarkHybrid
+# ---------------------------------------------------------------------------
+
+
+class TestRunBenchmarkHybrid:
+    """Tests for run_benchmark() with hybrid condition."""
+
+    @staticmethod
+    def _mock_device():
+        """Create mock SVDDevice matching _make_dataset() questions."""
+        from unittest.mock import MagicMock
+
+        reg_cr1 = MagicMock()
+        reg_cr1.name = "CR1"
+        reg_cr1.address_offset = 0x00
+        reg_cr1.reset_value = 0x00000000
+        reg_cr1.access = MagicMock()
+        reg_cr1.access.name = "READ_WRITE"
+        reg_cr1.fields = []
+
+        periph = MagicMock()
+        periph.name = "SPI1"
+        periph.base_address = 0x40013000
+        periph.registers = [reg_cr1]
+
+        device = MagicMock()
+        device.peripherals = [periph]
+        return device
+
+    def test_hybrid_routes_svd_to_lookup(self):
+        """SVD-category questions should be answered via SVD lookup (no LLM)."""
+        dataset = _make_dataset()
+        provider = _MockProvider(answer="wrong_answer")
+        conditions = [
+            BenchCondition("hybrid", "", "Hybrid router"),
+            BenchCondition("no_context", "prompt", "Fallback"),
+        ]
+
+        runs = run_benchmark(
+            dataset,
+            provider,
+            conditions,
+            delay_seconds=0,
+            svd_device=self._mock_device(),
+        )
+
+        # hybrid + no_context = 2 runs
+        assert len(runs) == 2
+        hybrid_run = runs[0]
+        assert hybrid_run.condition == "hybrid"
+        # Both questions are SVD categories — should use SVD lookup
+        assert hybrid_run.responses[0].correct is True
+        assert hybrid_run.responses[0].extracted_answer == "0x40013000"
+        # Provider should NOT have been called for SVD questions in hybrid
+        # (but it IS called for no_context run)
+        assert provider._call_count == 2  # only from no_context
+
+    def test_hybrid_routes_datasheet_to_llm(self):
+        """Non-SVD questions should fall through to LLM provider."""
+        questions = (
+            BenchQuestion(
+                id="spi1_base_address",
+                category="base_address",
+                peripheral="SPI1",
+                register="",
+                field_name="",
+                question="What is the base address of SPI1?",
+                answer="0x40013000",
+                answer_format="hex",
+            ),
+            BenchQuestion(
+                id="spi1_clock",
+                category="clock_config",
+                peripheral="SPI1",
+                register="",
+                field_name="",
+                question="What clock bus is SPI1 on?",
+                answer="APB2",
+                answer_format="text",
+            ),
+        )
+        dataset = _make_dataset(questions=questions)
+        provider = _MockProvider(answer="APB2")
+        conditions = [
+            BenchCondition("hybrid", "", "Hybrid router"),
+            BenchCondition("no_context", "prompt", "Fallback"),
+        ]
+
+        runs = run_benchmark(
+            dataset,
+            provider,
+            conditions,
+            delay_seconds=0,
+            svd_device=self._mock_device(),
+        )
+
+        hybrid_run = runs[0]
+        # First question (base_address) → SVD lookup
+        assert hybrid_run.responses[0].extracted_answer == "0x40013000"
+        # Second question (clock_config) → LLM fallback
+        assert hybrid_run.responses[1].raw_response == "APB2"
+        # Provider called once for hybrid (clock_config) + 2 for no_context
+        assert provider._call_count == 3
+
+    def test_hybrid_skipped_without_device(self):
+        """hybrid condition is skipped when no svd_device provided."""
+        dataset = _make_dataset()
+        provider = _MockProvider(answer="0x40013000")
+        conditions = [
+            BenchCondition("no_context", "prompt", "No context"),
+            BenchCondition("hybrid", "", "Hybrid router"),
+        ]
+
+        runs = run_benchmark(
+            dataset,
+            provider,
+            conditions,
+            delay_seconds=0,
+        )
+
+        assert len(runs) == 1
+        assert runs[0].condition == "no_context"

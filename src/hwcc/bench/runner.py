@@ -15,6 +15,7 @@ from hwcc.bench.scoring import (
     score_answer,
     score_answer_partial,
 )
+from hwcc.bench.svd_lookup import SVD_CATEGORIES, SvdLookupResult, lookup_svd_answer
 from hwcc.bench.types import (
     BenchCondition,
     BenchDataset,
@@ -152,6 +153,7 @@ def run_benchmark(
     num_runs: int = 1,
     search_engine: SearchEngine | None = None,
     rag_top_k: int = 5,
+    svd_device: object | None = None,
 ) -> list[BenchRun]:
     """Execute benchmark: run all questions under each condition.
 
@@ -167,6 +169,7 @@ def run_benchmark(
             and a condition named "hwcc_rag" is in the list, each question gets
             per-question context via vector search.
         rag_top_k: Number of chunks to retrieve per question for RAG (default 5).
+        svd_device: Optional parsed SVDDevice for svd_lookup and hybrid conditions.
 
     Returns:
         List of BenchRun results. With num_runs > 1, multiple runs per condition
@@ -174,10 +177,19 @@ def run_benchmark(
     """
     runs: list[BenchRun] = []
 
+    # Resolve LLM fallback condition for hybrid routing (hwcc_full > hwcc_hot > no_context)
+    llm_fallback = _resolve_llm_fallback(conditions)
+
     for condition in conditions:
-        # Skip hwcc_rag if no search engine provided
+        # Skip conditions that require unavailable dependencies
         if condition.name == "hwcc_rag" and search_engine is None:
             logger.warning("Skipping hwcc_rag condition: no search engine provided")
+            continue
+        if condition.name == "svd_lookup" and svd_device is None:
+            logger.warning("Skipping svd_lookup condition: no SVD device provided")
+            continue
+        if condition.name == "hybrid" and svd_device is None:
+            logger.warning("Skipping hybrid condition: no SVD device provided")
             continue
 
         for run_idx in range(num_runs):
@@ -201,24 +213,40 @@ def run_benchmark(
                 if progress_callback:
                     progress_callback(condition.name, i, dataset.question_count)
 
-                # For hwcc_rag: build per-question condition via vector search
-                effective_condition = condition
-                if condition.name == "hwcc_rag" and search_engine is not None:
-                    effective_condition = _build_rag_condition_from_engine(
+                if condition.name == "svd_lookup":
+                    response, tokens = _handle_svd_lookup(question, svd_device)
+                elif condition.name == "hybrid":
+                    response, tokens = _handle_hybrid(
                         question,
+                        svd_device,
+                        provider,
                         search_engine,
+                        llm_fallback,
                         dataset.chip,
-                        top_k=rag_top_k,
+                        rag_top_k,
+                    )
+                else:
+                    # Standard LLM path
+                    effective_condition = condition
+                    if condition.name == "hwcc_rag" and search_engine is not None:
+                        effective_condition = _build_rag_condition_from_engine(
+                            question,
+                            search_engine,
+                            dataset.chip,
+                            top_k=rag_top_k,
+                        )
+                    response, tokens = _ask_question(
+                        question, effective_condition, provider
                     )
 
-                response, tokens = _ask_question(
-                    question, effective_condition, provider
-                )
                 responses.append(response)
                 total_tokens += tokens
 
-                # Rate limiting
-                if delay_seconds > 0 and i < dataset.question_count - 1:
+                # Rate limiting (skip for pure SVD lookup — no API call)
+                needs_delay = condition.name != "svd_lookup"
+                if condition.name == "hybrid":
+                    needs_delay = question.category not in SVD_CATEGORIES
+                if needs_delay and delay_seconds > 0 and i < dataset.question_count - 1:
                     time.sleep(delay_seconds)
 
             completed = datetime.now(UTC).isoformat()
@@ -246,6 +274,115 @@ def run_benchmark(
             )
 
     return runs
+
+
+def _resolve_llm_fallback(conditions: list[BenchCondition]) -> BenchCondition | None:
+    """Find the best LLM fallback condition for hybrid routing.
+
+    Priority: hwcc_full > hwcc_hot > no_context.
+    """
+    by_name = {c.name: c for c in conditions}
+    for name in ("hwcc_full", "hwcc_hot", "no_context"):
+        if name in by_name:
+            return by_name[name]
+    return None
+
+
+def _handle_svd_lookup(
+    question: BenchQuestion,
+    svd_device: object | None,
+) -> tuple[BenchResponse, int]:
+    """Answer a question via direct SVD lookup (no LLM)."""
+    if svd_device is None:
+        return _svd_unanswerable_response(question, 0.0), 0
+
+    result = lookup_svd_answer(question, svd_device)
+    return _svd_result_to_response(question, result), 0
+
+
+def _handle_hybrid(
+    question: BenchQuestion,
+    svd_device: object | None,
+    provider: BaseBenchProvider,
+    search_engine: SearchEngine | None,
+    llm_fallback: BenchCondition | None,
+    chip: str,
+    rag_top_k: int,
+) -> tuple[BenchResponse, int]:
+    """Route a question to the best condition via hybrid routing."""
+    route = _route_question(question)
+
+    if route == "svd_lookup" and svd_device is not None:
+        result = lookup_svd_answer(question, svd_device)
+        return _svd_result_to_response(question, result), 0
+
+    # Non-SVD question: use RAG if available, else LLM fallback
+    if route == "hwcc_rag" and search_engine is not None:
+        effective = _build_rag_condition_from_engine(
+            question, search_engine, chip, top_k=rag_top_k
+        )
+        return _ask_question(question, effective, provider)
+
+    # Fallback to best available LLM condition
+    if llm_fallback is not None:
+        return _ask_question(question, llm_fallback, provider)
+
+    # No fallback available — build a minimal no_context condition
+    fallback = BenchCondition(
+        name="no_context",
+        system_prompt=_BASE_SYSTEM_PROMPT.format(chip=chip, context_block=""),
+        description="No context fallback",
+    )
+    return _ask_question(question, fallback, provider)
+
+
+def _route_question(question: BenchQuestion) -> str:
+    """Route a question to the best condition name."""
+    if question.category in SVD_CATEGORIES:
+        return "svd_lookup"
+    if question.peripheral:
+        return "hwcc_rag"
+    return "hwcc_full"
+
+
+def _svd_result_to_response(
+    question: BenchQuestion,
+    result: SvdLookupResult,
+) -> BenchResponse:
+    """Convert an SvdLookupResult to a BenchResponse with scoring."""
+    if not result.answerable:
+        return _svd_unanswerable_response(question, result.latency_ms)
+
+    sc = score_answer(result.answer, question.answer, question.answer_format)
+    partial = score_answer_partial(result.answer, question.answer, question.answer_format)
+
+    return BenchResponse(
+        question_id=question.id,
+        raw_response=result.answer,
+        extracted_answer=result.answer,
+        correct=sc == 1.0,
+        score=sc,
+        latency_ms=result.latency_ms,
+        partial_score=partial,
+        confidence=1.0,
+    )
+
+
+def _svd_unanswerable_response(
+    question: BenchQuestion,
+    latency_ms: float,
+) -> BenchResponse:
+    """Build a BenchResponse for an unanswerable SVD lookup."""
+    return BenchResponse(
+        question_id=question.id,
+        raw_response="[SVD_UNANSWERABLE]",
+        extracted_answer="",
+        correct=False,
+        score=0.0,
+        latency_ms=latency_ms,
+        partial_score=0.0,
+        confidence=None,
+    )
 
 
 def _ask_question(
