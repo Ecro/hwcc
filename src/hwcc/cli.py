@@ -67,6 +67,7 @@ def _get_pdf_parser(config: HwccConfig) -> BaseParser:
         )
     return PdfParser()
 
+
 app = typer.Typer(
     name="hwcc",
     help="Hardware Context Compiler — transforms hardware docs into AI-optimized context.",
@@ -497,7 +498,7 @@ def compile_cmd(
         console.print("[dim]Nothing to compile.[/dim]")
 
 
-@app.command(hidden=True)
+@app.command()
 def context(
     query: Annotated[
         str | None,
@@ -511,9 +512,262 @@ def context(
         str,
         typer.Option("--format", "-f", help="Output format (md, json, text)"),
     ] = "md",
+    list_peripherals: Annotated[
+        bool,
+        typer.Option("--list", "-l", help="List available peripherals"),
+    ] = False,
+    chip: Annotated[
+        str,
+        typer.Option("--chip", "-c", help="Filter by chip name"),
+    ] = "",
+    top_k: Annotated[
+        int,
+        typer.Option("--top-k", "-k", help="Max search results (search mode only)"),
+    ] = 5,
 ) -> None:
-    """Retrieve context for a peripheral or query."""
-    _not_implemented("context")
+    """Retrieve context for a peripheral or query.
+
+    Looks for pre-compiled peripheral context files first, then falls back
+    to semantic search.  Supports clipboard copy and multiple output formats.
+
+    Examples::
+
+        hwcc context SPI1              # print SPI1 peripheral context
+        hwcc context SPI1 --copy       # copy to clipboard
+        hwcc context SPI1 -f json      # JSON output
+        hwcc context --list            # list available peripherals
+        hwcc context "DMA transfer"    # semantic search fallback
+    """
+    pm = ProjectManager()
+    if not pm.is_initialized:
+        console.print("[yellow]No hwcc project found.[/yellow] Run [bold]hwcc init[/bold] first.")
+        raise typer.Exit(code=1)
+
+    peripherals_dir = pm.rag_dir / "context" / "peripherals"
+
+    if list_peripherals:
+        _context_list(peripherals_dir)
+        return
+
+    if fmt not in ("md", "json", "text"):
+        console.print(f"[red]Invalid format:[/red] {fmt!r}. Use md, json, or text.")
+        raise typer.Exit(code=1)
+
+    if not query:
+        console.print("[yellow]Provide a peripheral name or search query.[/yellow]")
+        console.print("Use [bold]hwcc context --list[/bold] to see available peripherals.")
+        raise typer.Exit(code=1)
+
+    # Try peripheral file lookup first
+    content = _find_peripheral_context(peripherals_dir, query, chip)
+
+    if content is not None:
+        _output_context(content, query, fmt, copy)
+        return
+
+    # Fallback: semantic search
+    _context_search(pm, query, chip, top_k, fmt, copy)
+
+
+def _find_peripheral_context(peripherals_dir: Path, name: str, chip: str = "") -> str | None:
+    """Look for a pre-compiled peripheral context file.
+
+    Tries exact name, chip-suffixed name, and glob fallback.
+    Returns file content or None if not found.
+    """
+    if not peripherals_dir.is_dir():
+        return None
+
+    if _has_path_chars(name) or (chip and _has_path_chars(chip)):
+        return None
+
+    resolved_dir = peripherals_dir.resolve()
+    lower = name.lower()
+    candidates: list[Path] = []
+    if chip:
+        candidates.append(peripherals_dir / f"{lower}_{chip.lower()}.md")
+    candidates.append(peripherals_dir / f"{lower}.md")
+
+    for candidate in candidates:
+        if candidate.is_file() and candidate.resolve().is_relative_to(resolved_dir):
+            return candidate.read_text(encoding="utf-8")
+
+    # Glob fallback: any file starting with the peripheral name
+    matches = sorted(peripherals_dir.glob(f"{lower}*.md"))
+    if not matches:
+        matches = sorted(
+            p
+            for p in peripherals_dir.iterdir()
+            if p.suffix == ".md" and p.stem.lower().startswith(lower)
+        )
+    matches = [m for m in matches if m.resolve().is_relative_to(resolved_dir)]
+    if matches:
+        return matches[0].read_text(encoding="utf-8")
+
+    return None
+
+
+def _has_path_chars(name: str) -> bool:
+    """Return True if *name* contains path traversal characters."""
+    return "/" in name or "\\" in name or ".." in name or "\x00" in name
+
+
+def _context_list(peripherals_dir: Path) -> None:
+    """List available peripheral context files."""
+    if not peripherals_dir.is_dir():
+        console.print("[dim]No peripheral context files found.[/dim]")
+        console.print("Run [bold]hwcc add[/bold] and [bold]hwcc compile[/bold] first.")
+        return
+
+    files = sorted(peripherals_dir.glob("*.md"))
+    if not files:
+        console.print("[dim]No peripheral context files found.[/dim]")
+        console.print("Run [bold]hwcc add[/bold] and [bold]hwcc compile[/bold] first.")
+        return
+
+    table = Table(title="Available Peripherals")
+    table.add_column("Peripheral", style="cyan")
+    table.add_column("Chip", style="green")
+    table.add_column("File", style="dim")
+
+    for f in files:
+        periph_name, chip_name = _parse_peripheral_heading(f)
+        if not periph_name:
+            periph_name = f.stem.upper()
+        table.add_row(periph_name, chip_name, f.name)
+
+    console.print(table)
+
+
+def _parse_peripheral_heading(path: Path) -> tuple[str, str]:
+    """Extract peripheral name and chip from first heading line.
+
+    Expects format ``# SPI1 — STM32F407`` or ``# SPI1``.
+    """
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if line.startswith("# "):
+                    heading = line[2:].strip()
+                    if " — " in heading:
+                        parts = heading.split(" — ", 1)
+                        return parts[0].strip(), parts[1].strip()
+                    if " - " in heading:
+                        parts = heading.split(" - ", 1)
+                        return parts[0].strip(), parts[1].strip()
+                    return heading, ""
+    except OSError:
+        pass
+    return "", ""
+
+
+def _context_search(
+    pm: ProjectManager,
+    query: str,
+    chip: str,
+    top_k: int,
+    fmt: str,
+    copy: bool,
+) -> None:
+    """Fall back to semantic search when no peripheral file matches."""
+    from hwcc.search import SearchEngine
+
+    config = load_config(pm.config_path)
+
+    try:
+        embedder = default_registry.create("embedding", config.embedding.provider, config)
+        store = ChromaStore(
+            persist_path=pm.rag_dir / "index",
+            collection_name=config.store.collection_name,
+        )
+    except HwccError as e:
+        console.print(f"[red]Error initializing search:[/red] {e}")
+        raise typer.Exit(code=1) from e
+
+    if store.count() == 0:
+        console.print("[yellow]No documents indexed.[/yellow] Run [bold]hwcc add[/bold] first.")
+        raise typer.Exit(code=0)
+
+    engine = SearchEngine(embedder=embedder, store=store)
+
+    try:
+        results, elapsed = engine.search(query, k=top_k, chip=chip)
+    except HwccError as e:
+        console.print(f"[red]Search failed:[/red] {e}")
+        raise typer.Exit(code=1) from e
+
+    if not results:
+        console.print(f"[yellow]No results for[/yellow] '{query}'")
+        raise typer.Exit(code=0)
+
+    # Build output text
+    lines: list[str] = []
+    for i, sr in enumerate(results, 1):
+        meta = sr.chunk.metadata
+        header_parts: list[str] = []
+        if meta.peripheral:
+            header_parts.append(meta.peripheral)
+        if meta.chip:
+            header_parts.append(meta.chip)
+        if meta.doc_type:
+            header_parts.append(meta.doc_type)
+        tag = " | ".join(header_parts) if header_parts else "result"
+        lines.append(f"### {i}. [{tag}] (score: {sr.score:.2f})\n")
+        lines.append(sr.chunk.content.strip())
+        lines.append("")
+
+    content = (
+        f'## Search results for "{query}" '
+        f"({len(results)} hits, {elapsed:.2f}s)\n\n" + "\n".join(lines)
+    )
+
+    _output_context(content, query, fmt, copy)
+
+
+def _output_context(content: str, label: str, fmt: str, copy: bool) -> None:
+    """Format and output context content, optionally copying to clipboard."""
+    import json as json_mod
+
+    if fmt == "json":
+        obj = {"query": label, "content": content}
+        output = json_mod.dumps(obj, indent=2, ensure_ascii=False)
+    elif fmt == "text":
+        output = _strip_markdown(content)
+    else:
+        output = content
+
+    # Print to stdout (enables piping)
+    typer.echo(output)
+
+    if copy:
+        from hwcc.clipboard import copy_to_clipboard
+
+        ok, msg = copy_to_clipboard(output)
+        if ok:
+            console.print(f"[green]{msg}[/green]")
+        else:
+            console.print(f"[yellow]{msg}[/yellow]")
+
+
+def _strip_markdown(text: str) -> str:
+    """Remove markdown formatting for plain text output."""
+    import re
+
+    lines: list[str] = []
+    for line in text.splitlines():
+        # Strip heading markers
+        if line.startswith("#"):
+            line = re.sub(r"^#+\s*", "", line)
+        # Strip bold/italic (both * and _ styles)
+        line = re.sub(r"\*\*(.+?)\*\*", r"\1", line)
+        line = re.sub(r"__(.+?)__", r"\1", line)
+        line = re.sub(r"\*(.+?)\*", r"\1", line)
+        line = re.sub(r"(?<!\w)_(.+?)_(?!\w)", r"\1", line)
+        # Strip inline code backticks
+        line = re.sub(r"`(.+?)`", r"\1", line)
+        lines.append(line)
+    return "\n".join(lines)
 
 
 @app.command()
@@ -975,6 +1229,10 @@ def bench_run(
         str,
         typer.Option("--output-format", help="Output format: json or markdown"),
     ] = "json",
+    rag_top_k: Annotated[
+        int,
+        typer.Option("--rag-top-k", min=1, help="Chunks to retrieve per question for hwcc_rag"),
+    ] = 5,
 ) -> None:
     """Run benchmark against an LLM provider."""
     if output_format not in ("json", "markdown"):
@@ -1011,22 +1269,61 @@ def bench_run(
         raise typer.Exit(code=1) from e
 
     # Prepare conditions
+    pm = ProjectManager()
     ctx_path = Path(context_dir) if context_dir else None
-    if not ctx_path:
-        # Try to find .rag/context/ in current directory
-        pm = ProjectManager()
-        if pm.is_initialized:
-            ctx_path = pm.rag_dir / "context"
+    if not ctx_path and pm.is_initialized:
+        ctx_path = pm.rag_dir / "context"
 
     requested_conditions = [c.strip() for c in conditions.split(",")]
     peripheral_names = list({q.peripheral for q in dataset.questions})
     all_conditions = prepare_conditions(ctx_path, dataset.chip, peripheral_names)
     filtered = [c for c in all_conditions if c.name in requested_conditions]
 
+    # Add hwcc_rag placeholder if requested (handled per-question in runner)
+    if "hwcc_rag" in requested_conditions and not any(c.name == "hwcc_rag" for c in filtered):
+        from hwcc.bench.types import BenchCondition
+
+        filtered.append(
+            BenchCondition(
+                name="hwcc_rag",
+                system_prompt="",
+                description="hwcc RAG: per-question vector search",
+            )
+        )
+
+    # Set up SearchEngine if hwcc_rag requested
+    search_engine = None
+    if any(c.name == "hwcc_rag" for c in filtered):
+        from hwcc.search import SearchEngine
+
+        config = load_config(pm.config_path) if pm.is_initialized else None
+        if config is None:
+            console.print(
+                "[red]hwcc_rag requires an initialized project with indexed documents.[/red]"
+            )
+            raise typer.Exit(code=1)
+        try:
+            embedder = default_registry.create("embedding", config.embedding.provider, config)
+            store = ChromaStore(
+                persist_path=pm.rag_dir / "index",
+                collection_name=config.store.collection_name,
+            )
+        except HwccError as e:
+            console.print(f"[red]Error initializing search for hwcc_rag:[/red] {e}")
+            raise typer.Exit(code=1) from e
+
+        if store.count() == 0:
+            console.print(
+                "[yellow]No documents indexed for RAG.[/yellow] Run [bold]hwcc add[/bold] first."
+            )
+            raise typer.Exit(code=1)
+
+        search_engine = SearchEngine(embedder=embedder, store=store)
+
     if not filtered:
         console.print(
             f"[red]No valid conditions found.[/red] "
-            f"Available: {', '.join(c.name for c in all_conditions)}"
+            f"Available: {', '.join(c.name for c in all_conditions)}, hwcc_rag"
         )
         raise typer.Exit(code=1)
 
@@ -1055,6 +1352,8 @@ def bench_run(
                 delay_seconds=delay,
                 progress_callback=on_progress,
                 num_runs=runs,
+                search_engine=search_engine,
+                rag_top_k=rag_top_k,
             )
         except BenchmarkError as e:
             console.print(f"\n[red]Benchmark error:[/red] {e}")

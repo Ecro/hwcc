@@ -460,11 +460,12 @@ class TestPrepareConditionsRawPdf:
 
 
 class TestBuildRagCondition:
-    """Tests for _build_rag_condition()."""
+    """Tests for _build_rag_condition_from_engine()."""
 
-    def test_builds_condition_from_mock_store(self):
-        from hwcc.bench.runner import _build_rag_condition
+    def test_builds_condition_from_search_engine(self):
+        from hwcc.bench.runner import _build_rag_condition_from_engine
         from hwcc.bench.types import BenchQuestion
+        from hwcc.types import Chunk, ChunkMetadata, SearchResult
 
         question = BenchQuestion(
             id="usart2_apb_bus",
@@ -477,11 +478,10 @@ class TestBuildRagCondition:
             answer_format="text",
         )
 
-        # Mock store with search results
-        class MockStore:
-            def search(self, query: str, n_results: int = 5):
-                from hwcc.types import Chunk, ChunkMetadata, SearchResult
-
+        class MockSearchEngine:
+            def search(
+                self, query: str, k: int = 5, chip: str = "", **kwargs: str
+            ) -> tuple[list[SearchResult], float]:
                 meta = ChunkMetadata(doc_id="test", doc_type="reference_manual")
                 c1 = Chunk(
                     chunk_id="c1",
@@ -498,16 +498,17 @@ class TestBuildRagCondition:
                 return [
                     SearchResult(chunk=c1, score=0.9),
                     SearchResult(chunk=c2, score=0.8),
-                ]
+                ], 0.01
 
-        condition = _build_rag_condition(question, MockStore(), "TESTCHIP")
+        condition = _build_rag_condition_from_engine(question, MockSearchEngine(), "TESTCHIP")  # type: ignore[arg-type]
         assert condition.name == "hwcc_rag"
         assert "USART2 is on APB1 bus" in condition.system_prompt
         assert "APB1 runs at 42 MHz" in condition.system_prompt
 
     def test_rag_respects_char_budget(self):
-        from hwcc.bench.runner import _build_rag_condition
+        from hwcc.bench.runner import _build_rag_condition_from_engine
         from hwcc.bench.types import BenchQuestion
+        from hwcc.types import Chunk, ChunkMetadata, SearchResult
 
         question = BenchQuestion(
             id="test_q",
@@ -520,12 +521,11 @@ class TestBuildRagCondition:
             answer_format="text",
         )
 
-        class BigStore:
-            def search(self, query: str, n_results: int = 5):
-                from hwcc.types import Chunk, ChunkMetadata, SearchResult
-
+        class MockSearchEngine:
+            def search(
+                self, query: str, k: int = 5, chip: str = "", **kwargs: str
+            ) -> tuple[list[SearchResult], float]:
                 meta = ChunkMetadata(doc_id="test", doc_type="reference_manual")
-                # Each chunk is 20K chars — only 1 fits in 32K
                 c1 = Chunk(
                     chunk_id="c1",
                     content="A" * 20_000,
@@ -541,12 +541,134 @@ class TestBuildRagCondition:
                 return [
                     SearchResult(chunk=c1, score=0.9),
                     SearchResult(chunk=c2, score=0.8),
-                ]
+                ], 0.01
 
-        condition = _build_rag_condition(question, BigStore(), "TESTCHIP", max_chars=32_000)
+        condition = _build_rag_condition_from_engine(
+            question, MockSearchEngine(), "TESTCHIP", max_chars=32_000  # type: ignore[arg-type]
+        )
         # Only first chunk should fit
         assert "A" * 20_000 in condition.system_prompt
         assert "B" * 20_000 not in condition.system_prompt
+
+
+class TestRunBenchmarkWithRag:
+    """Tests for run_benchmark() with hwcc_rag condition using search_engine."""
+
+    def test_rag_condition_uses_search_engine(self):
+        """When hwcc_rag condition is present and search_engine provided,
+        each question gets per-question RAG context."""
+        from hwcc.types import Chunk, ChunkMetadata, SearchResult
+
+        dataset = _make_dataset()
+        provider = _MockProvider(answer="0x40013000")
+        conditions = [
+            BenchCondition("hwcc_rag", "", "RAG condition placeholder"),
+        ]
+
+        class MockSearchEngine:
+            def __init__(self):
+                self.queries: list[str] = []
+
+            def search(
+                self, query: str, k: int = 5, chip: str = "", **kwargs: str
+            ) -> tuple[list[SearchResult], float]:
+                self.queries.append(query)
+                meta = ChunkMetadata(doc_id="test", doc_type="svd")
+                chunk = Chunk(
+                    chunk_id="c1",
+                    content=f"Context for: {query}",
+                    token_count=10,
+                    metadata=meta,
+                )
+                return [SearchResult(chunk=chunk, score=0.9)], 0.01
+
+        engine = MockSearchEngine()
+        runs = run_benchmark(
+            dataset,
+            provider,
+            conditions,
+            delay_seconds=0,
+            search_engine=engine,
+        )
+
+        assert len(runs) == 1
+        assert runs[0].condition == "hwcc_rag"
+        # Search should have been called once per question
+        assert len(engine.queries) == 2
+        assert engine.queries[0] == "What is the base address of SPI1?"
+        assert engine.queries[1] == "What is the offset of SPI1_CR1?"
+
+    def test_rag_condition_without_engine_skipped(self):
+        """hwcc_rag condition without search_engine is skipped."""
+        dataset = _make_dataset()
+        provider = _MockProvider(answer="0x40013000")
+        conditions = [
+            BenchCondition("no_context", "prompt", "No context"),
+            BenchCondition("hwcc_rag", "", "RAG placeholder"),
+        ]
+
+        runs = run_benchmark(
+            dataset,
+            provider,
+            conditions,
+            delay_seconds=0,
+        )
+
+        # Only no_context should run, hwcc_rag skipped
+        assert len(runs) == 1
+        assert runs[0].condition == "no_context"
+
+    def test_rag_top_k_passed_to_search(self):
+        """rag_top_k parameter controls k in search calls."""
+        from hwcc.types import Chunk, ChunkMetadata, SearchResult
+
+        dataset = _make_dataset(
+            questions=(
+                BenchQuestion(
+                    id="q1",
+                    category="base_address",
+                    peripheral="SPI1",
+                    register="",
+                    field_name="",
+                    question="Test?",
+                    answer="0x40013000",
+                    answer_format="hex",
+                ),
+            )
+        )
+        provider = _MockProvider(answer="0x40013000")
+        conditions = [
+            BenchCondition("hwcc_rag", "", "RAG placeholder"),
+        ]
+
+        class MockSearchEngine:
+            def __init__(self):
+                self.k_values: list[int] = []
+
+            def search(
+                self, query: str, k: int = 5, chip: str = "", **kwargs: str
+            ) -> tuple[list[SearchResult], float]:
+                self.k_values.append(k)
+                meta = ChunkMetadata(doc_id="test", doc_type="svd")
+                chunk = Chunk(
+                    chunk_id="c1",
+                    content="context",
+                    token_count=10,
+                    metadata=meta,
+                )
+                return [SearchResult(chunk=chunk, score=0.9)], 0.01
+
+        engine = MockSearchEngine()
+        run_benchmark(
+            dataset,
+            provider,
+            conditions,
+            delay_seconds=0,
+            search_engine=engine,
+            rag_top_k=10,
+        )
+
+        assert engine.k_values == [10]
 
 
 class TestRunBenchmarkMultiRun:

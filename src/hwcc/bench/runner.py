@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from hwcc.bench.providers import BaseBenchProvider
+    from hwcc.search import SearchEngine
 
 __all__ = ["prepare_conditions", "run_benchmark"]
 
@@ -149,6 +150,8 @@ def run_benchmark(
     delay_seconds: float = 0.5,
     progress_callback: ProgressCallback | None = None,
     num_runs: int = 1,
+    search_engine: SearchEngine | None = None,
+    rag_top_k: int = 5,
 ) -> list[BenchRun]:
     """Execute benchmark: run all questions under each condition.
 
@@ -160,6 +163,10 @@ def run_benchmark(
         progress_callback: Optional callback(condition_name, question_index, total).
         num_runs: Number of runs per condition (default 1). Multiple runs enable
             statistical analysis (mean, std, CI).
+        search_engine: Optional SearchEngine for hwcc_rag condition. When provided
+            and a condition named "hwcc_rag" is in the list, each question gets
+            per-question context via vector search.
+        rag_top_k: Number of chunks to retrieve per question for RAG (default 5).
 
     Returns:
         List of BenchRun results. With num_runs > 1, multiple runs per condition
@@ -168,6 +175,11 @@ def run_benchmark(
     runs: list[BenchRun] = []
 
     for condition in conditions:
+        # Skip hwcc_rag if no search engine provided
+        if condition.name == "hwcc_rag" and search_engine is None:
+            logger.warning("Skipping hwcc_rag condition: no search engine provided")
+            continue
+
         for run_idx in range(num_runs):
             run_label = condition.name
             if num_runs > 1:
@@ -189,7 +201,19 @@ def run_benchmark(
                 if progress_callback:
                     progress_callback(condition.name, i, dataset.question_count)
 
-                response, tokens = _ask_question(question, condition, provider)
+                # For hwcc_rag: build per-question condition via vector search
+                effective_condition = condition
+                if condition.name == "hwcc_rag" and search_engine is not None:
+                    effective_condition = _build_rag_condition_from_engine(
+                        question,
+                        search_engine,
+                        dataset.chip,
+                        top_k=rag_top_k,
+                    )
+
+                response, tokens = _ask_question(
+                    question, effective_condition, provider
+                )
                 responses.append(response)
                 total_tokens += tokens
 
@@ -273,18 +297,18 @@ def _ask_question(
     )
 
 
-def _build_rag_condition(
+def _build_rag_condition_from_engine(
     question: BenchQuestion,
-    store: object,
+    search_engine: SearchEngine,
     chip: str,
     top_k: int = 5,
     max_chars: int = 32_000,
 ) -> BenchCondition:
-    """Build a per-question RAG condition by querying the vector store.
+    """Build a per-question RAG condition using a SearchEngine.
 
     Args:
         question: The benchmark question to build context for.
-        store: A store object with a search(query, n_results) method.
+        search_engine: SearchEngine instance for vector search.
         chip: Chip name for prompt interpolation.
         top_k: Number of chunks to retrieve.
         max_chars: Maximum characters for assembled context.
@@ -292,7 +316,7 @@ def _build_rag_condition(
     Returns:
         BenchCondition with retrieved chunks as context.
     """
-    results = store.search(question.question, n_results=top_k)  # type: ignore[attr-defined]
+    results, _elapsed = search_engine.search(query=question.question, k=top_k, chip=chip)
     chunks: list[str] = []
     total_chars = 0
     for result in results:
